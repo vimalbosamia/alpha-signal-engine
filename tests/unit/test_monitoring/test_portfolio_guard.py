@@ -391,3 +391,88 @@ class TestThreadSafety:
 
         assert not errors
         assert guard.active_count <= 50
+
+
+# ── Portfolio Heat ─────────────────────────────────────────────────────────────
+
+def _mock_settings_risk_pct(risk_pct: float):
+    """Return a patch context that makes get_settings() yield the given risk_pct."""
+    from unittest.mock import MagicMock
+    mock_settings = MagicMock()
+    mock_settings.risk.max_risk_per_signal_pct = risk_pct
+    return patch("libs.monitoring.portfolio_guard.get_settings", return_value=mock_settings)
+
+
+class TestPortfolioHeat:
+    def test_heat_blocks_when_at_limit(self):
+        # 9 signals at 1% each = 9% heat; next signal at 1% would exceed 10%
+        # Use high direction/concurrent limits so only heat rule fires
+        with _mock_settings_risk_pct(1.0):
+            guard = _make_guard(
+                max_portfolio_heat_pct=10.0,
+                max_concurrent_signals=20,
+                max_same_direction=20,
+                max_per_asset_class=20,
+            )
+            for i in range(9):
+                sig = _make_signal(symbol=f"COIN{i}/USDT")
+                assert guard.is_allowed(sig).allowed
+                guard.register(sig)
+            new_sig = _make_signal(symbol="COIN99/USDT")
+            decision = guard.is_allowed(new_sig)
+            assert decision.blocked
+            assert "GUARD_PORTFOLIO_HEAT" in decision.reason
+
+    def test_heat_allows_when_below_limit(self):
+        with _mock_settings_risk_pct(1.0):
+            guard = _make_guard(
+                max_portfolio_heat_pct=10.0,
+                max_concurrent_signals=20,
+                max_same_direction=20,
+                max_per_asset_class=20,
+            )
+            for i in range(5):
+                sig = _make_signal(symbol=f"COIN{i}/USDT")
+                guard.register(sig)
+            new_sig = _make_signal(symbol="COIN99/USDT")
+            assert guard.is_allowed(new_sig).allowed
+
+    def test_exposure_summary_includes_heat(self):
+        with _mock_settings_risk_pct(1.0):
+            guard = _make_guard()
+            sig = _make_signal()
+            guard.register(sig)
+            summary = guard.exposure_summary()
+            assert "portfolio_heat_pct" in summary
+
+
+# ── Daily Loss Circuit Breaker ─────────────────────────────────────────────────
+
+class TestDailyLossCircuitBreaker:
+    def test_circuit_breaker_blocks_after_loss_limit(self):
+        guard = _make_guard(max_daily_loss_pct=3.0)
+        guard.record_loss(3.0)   # hit the limit
+        sig = _make_signal()
+        assert guard.is_allowed(sig).blocked
+        assert "GUARD_DAILY_LOSS" in guard.is_allowed(sig).reason
+
+    def test_circuit_breaker_allows_before_limit(self):
+        guard = _make_guard(max_daily_loss_pct=3.0)
+        guard.record_loss(1.5)
+        sig = _make_signal()
+        assert guard.is_allowed(sig).allowed
+
+    def test_loss_resets_on_new_day(self):
+        guard = _make_guard(max_daily_loss_pct=3.0)
+        # Set loss for "yesterday"
+        guard._daily_loss_pct = 5.0
+        guard._loss_day = "2020-01-01"
+        # Today's check should reset and allow
+        sig = _make_signal()
+        assert guard.is_allowed(sig).allowed
+
+    def test_exposure_summary_includes_daily_loss(self):
+        guard = _make_guard()
+        guard.record_loss(1.0)
+        summary = guard.exposure_summary()
+        assert "daily_loss_pct" in summary

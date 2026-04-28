@@ -2,10 +2,12 @@
 PortfolioGuard — enforces exposure limits before a signal is accepted.
 
 Rules (all configurable via GuardConfig):
-  1. max_concurrent_signals   — total open BUY+SELL signals across all symbols
-  2. max_per_symbol           — no more than N open signals for the same symbol
-  3. max_same_direction       — limits how many BUY-only or SELL-only at once
-  4. max_per_asset_class      — separate limits for crypto vs. stock exposure
+  0. daily loss circuit breaker — halt all signals when daily realized loss >= threshold
+  1. max_concurrent_signals    — total open BUY+SELL signals across all symbols
+  2. max_per_symbol            — no more than N open signals for the same symbol
+  3. max_same_direction        — limits how many BUY-only or SELL-only at once
+  4. max_per_asset_class       — separate limits for crypto vs. stock exposure
+  5. max_portfolio_heat_pct    — halt new signals when total % at risk >= threshold
 
 Design rules:
   - Stateful but thread-safe (uses a simple lock).
@@ -21,6 +23,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from uuid import UUID
 
+from libs.core.config.settings import get_settings
 from libs.core.logging.logger import get_logger
 from libs.core.models.domain import AssetClass, SignalAction, SignalOutput
 
@@ -37,6 +40,8 @@ class GuardConfig:
     max_same_direction: int = 5         # max BUY-only or SELL-only at once
     max_per_asset_class: int = 6        # open signals per asset class
     max_age_hours: float = 24.0         # auto-expire positions older than this
+    max_portfolio_heat_pct: float = 10.0  # halt new signals if total risk >= this %
+    max_daily_loss_pct: float = 3.0     # halt if total realized loss >= this % of account in one day
 
 
 # ── Internal position record ────────────────────────────────────────────────────
@@ -48,6 +53,7 @@ class _ActiveSignal:
     asset_class: str        # AssetClass.value
     action: str             # SignalAction.value ("BUY" | "SELL")
     accepted_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    risk_pct: float = 1.0   # per-signal risk as % of account
 
 
 # ── Guard check result ──────────────────────────────────────────────────────────
@@ -78,6 +84,8 @@ class PortfolioGuard:
         self._config = config or GuardConfig()
         self._lock = threading.RLock()
         self._signals: dict[UUID, _ActiveSignal] = {}
+        self._daily_loss_pct: float = 0.0   # accumulated realized loss today (% of account)
+        self._loss_day: str = ""             # YYYY-MM-DD of current loss day
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -107,6 +115,10 @@ class PortfolioGuard:
         """
         if signal.action == SignalAction.NO_TRADE:
             return
+        try:
+            risk_pct = get_settings().risk.max_risk_per_signal_pct
+        except Exception:
+            risk_pct = 1.0
         with self._lock:
             if signal.signal_id in self._signals:
                 return
@@ -115,6 +127,7 @@ class PortfolioGuard:
                 symbol=signal.symbol,
                 asset_class=signal.asset_class.value,
                 action=signal.action.value,
+                risk_pct=risk_pct,
             )
             log.debug(
                 "portfolio_guard_registered",
@@ -157,6 +170,16 @@ class PortfolioGuard:
                 )
             return len(to_remove)
 
+    def record_loss(self, loss_pct: float) -> None:
+        """Record a realized loss (as % of account). Resets automatically on new calendar day."""
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        with self._lock:
+            if self._loss_day != today:
+                self._daily_loss_pct = 0.0
+                self._loss_day = today
+            self._daily_loss_pct += loss_pct
+            log.info("daily_loss_recorded", loss_pct=loss_pct, total_today=self._daily_loss_pct)
+
     @property
     def active_count(self) -> int:
         with self._lock:
@@ -166,17 +189,20 @@ class PortfolioGuard:
         with self._lock:
             return list(self._signals.values())
 
-    def exposure_summary(self) -> dict[str, int]:
-        """Return per-asset-class and per-direction counts for observability."""
+    def exposure_summary(self) -> dict:
+        """Return per-asset-class, per-direction counts and risk metrics for observability."""
         with self._lock:
             sigs = list(self._signals.values())
+            daily_loss = self._daily_loss_pct
 
-        summary: dict[str, int] = {
+        summary: dict = {
             "total": len(sigs),
             "buy": sum(1 for s in sigs if s.action == "BUY"),
             "sell": sum(1 for s in sigs if s.action == "SELL"),
             "crypto": sum(1 for s in sigs if s.asset_class == AssetClass.CRYPTO.value),
             "stock": sum(1 for s in sigs if s.asset_class == AssetClass.STOCK.value),
+            "portfolio_heat_pct": sum(s.risk_pct for s in sigs),
+            "daily_loss_pct": daily_loss,
         }
         return summary
 
@@ -200,6 +226,14 @@ class PortfolioGuard:
         """Run all guard rules. Called inside lock with expired entries removed."""
         cfg = self._config
         sigs = list(self._signals.values())
+
+        # Rule 0: daily loss circuit breaker
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if self._loss_day == today and self._daily_loss_pct >= cfg.max_daily_loss_pct:
+            return GuardDecision(
+                allowed=False,
+                reason=f"GUARD_DAILY_LOSS: {self._daily_loss_pct:.1f}%/{cfg.max_daily_loss_pct}% daily loss limit hit",
+            )
 
         # Rule 1: total concurrent cap
         if len(sigs) >= cfg.max_concurrent_signals:
@@ -236,6 +270,18 @@ class PortfolioGuard:
                     f"GUARD_ASSET_CLASS: {same_ac}/{cfg.max_per_asset_class} "
                     f"{signal.asset_class.value} signals open"
                 ),
+            )
+
+        # Rule 5: portfolio heat cap
+        try:
+            cfg_risk_pct = get_settings().risk.max_risk_per_signal_pct
+        except Exception:
+            cfg_risk_pct = 1.0
+        total_heat = sum(s.risk_pct for s in sigs)
+        if total_heat + cfg_risk_pct >= cfg.max_portfolio_heat_pct:
+            return GuardDecision(
+                allowed=False,
+                reason=f"GUARD_PORTFOLIO_HEAT: {total_heat:.1f}%/{cfg.max_portfolio_heat_pct}% at risk",
             )
 
         return GuardDecision(allowed=True)
