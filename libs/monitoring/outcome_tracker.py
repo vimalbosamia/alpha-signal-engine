@@ -1,0 +1,310 @@
+"""
+SignalOutcomeTracker — checks if BUY/SELL signals were directionally correct.
+
+After `check_after_minutes`, fetches the current price and compares to entry:
+  - BUY  correct → price > entry
+  - SELL correct → price < entry
+
+Also checks TP1/SL for full win/loss classification.
+
+Results are stored in `signal_outcomes` table.
+Per-strategy win rates are maintained in `strategy_performance` table.
+
+The tracker NEVER places or modifies orders. It is purely observational.
+"""
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from uuid import uuid4
+
+from libs.core.logging.logger import get_logger
+from libs.core.models.domain import SignalAction, SignalOutput
+from libs.data.storage.db import get_session_factory
+from libs.data.storage.models import SignalOutcomeRecord
+from libs.data.storage.repository import OutcomeRepository
+
+log = get_logger(__name__)
+
+# Outcome constants
+OUTCOME_WIN = "WIN"
+OUTCOME_LOSS = "LOSS"
+OUTCOME_PENDING = "PENDING"
+OUTCOME_EXPIRED = "EXPIRED"
+
+# Muted strategies — populated at runtime by learning loop
+_MUTED_STRATEGIES: set[str] = set()
+
+
+def is_strategy_muted(strategy_name: str) -> bool:
+    """Return True if this strategy has poor recent performance."""
+    return strategy_name in _MUTED_STRATEGIES
+
+
+@dataclass
+class PendingCheck:
+    outcome_id: str
+    signal_id: str
+    symbol: str
+    asset_class: str
+    strategy_name: str
+    action: SignalAction
+    entry_price: float
+    stop_loss: float
+    take_profit_1: float
+    check_at: datetime      # UTC time when we should check
+    created_at: datetime
+    ml_features: list[float] | None = None   # feature vector for ML training
+
+
+class SignalOutcomeTracker:
+    """
+    Monitors BUY/SELL signals and records whether they were correct.
+
+    Usage:
+        tracker = SignalOutcomeTracker(crypto_provider, stock_provider)
+        tracker.enqueue(signal_output)
+        asyncio.create_task(tracker.run_loop())
+    """
+
+    MAX_SIGNAL_AGE_HOURS: int = 4   # expire unresolved signals after 4h
+
+    def __init__(
+        self,
+        crypto_provider=None,
+        stock_provider=None,
+        check_after_minutes: int = 30,
+        poll_interval: int = 30,
+    ) -> None:
+        self._crypto = crypto_provider
+        self._stock = stock_provider
+        self._check_after = check_after_minutes
+        self._poll_interval = poll_interval
+        self._queue: list[PendingCheck] = []
+        self._lock = asyncio.Lock()
+
+    def enqueue(self, signal: SignalOutput) -> None:
+        """Register a BUY/SELL signal for outcome checking."""
+        if signal.action == SignalAction.NO_TRADE:
+            return
+
+        # Extract ML features at signal time (before we know outcome)
+        try:
+            from libs.ml.features import extract as extract_features
+            ml_features = extract_features(signal)
+        except Exception:
+            ml_features = None
+
+        entry = (signal.entry_zone_low + signal.entry_zone_high) / 2.0
+        now = datetime.now(timezone.utc)
+        check_at = now + timedelta(minutes=self._check_after)
+
+        pending = PendingCheck(
+            outcome_id=str(uuid4()),
+            signal_id=str(signal.signal_id),
+            symbol=signal.symbol,
+            asset_class=signal.asset_class.value,
+            strategy_name=signal.strategy_name,
+            action=signal.action,
+            entry_price=entry,
+            stop_loss=signal.stop_loss,
+            take_profit_1=signal.take_profit_1,
+            check_at=check_at,
+            created_at=now,
+            ml_features=ml_features,
+        )
+        self._queue.append(pending)
+
+        # Immediately write PENDING record to DB
+        asyncio.ensure_future(self._save_pending(pending))
+
+        log.info(
+            "outcome_enqueued",
+            symbol=signal.symbol,
+            strategy=signal.strategy_name,
+            action=signal.action.value,
+            check_at=check_at.isoformat(),
+        )
+
+    async def run_loop(self, stop_event: asyncio.Event | None = None) -> None:
+        """Poll pending signals. Runs until stop_event is set."""
+        log.info("outcome_tracker_started", check_after_minutes=self._check_after)
+        while True:
+            if stop_event and stop_event.is_set():
+                break
+            await self._process_due()
+            await asyncio.sleep(self._poll_interval)
+
+    async def _process_due(self) -> None:
+        now = datetime.now(timezone.utc)
+        due = [p for p in self._queue if p.check_at <= now]
+        if not due:
+            return
+
+        tasks = [self._resolve(p) for p in due]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Remove resolved from queue
+        resolved_ids = {p.outcome_id for p in due}
+        self._queue = [p for p in self._queue if p.outcome_id not in resolved_ids]
+
+        # Expire very old signals still pending
+        cutoff = now - timedelta(hours=self.MAX_SIGNAL_AGE_HOURS)
+        stale = [p for p in self._queue if p.created_at < cutoff]
+        for p in stale:
+            await self._write_outcome(p, price=0.0, outcome=OUTCOME_EXPIRED, correct=False)
+        self._queue = [p for p in self._queue if p not in stale]
+
+    async def _resolve(self, pending: PendingCheck) -> None:
+        provider = self._crypto if pending.asset_class == "crypto" else self._stock
+        if provider is None:
+            await self._write_outcome(pending, 0.0, OUTCOME_EXPIRED, False)
+            return
+
+        try:
+            price = await provider.get_latest_price(pending.symbol)
+        except Exception as exc:
+            log.debug("outcome_price_fetch_failed", symbol=pending.symbol, error=str(exc))
+            return
+
+        if price is None or price <= 0:
+            return
+
+        # Determine outcome
+        if pending.action == SignalAction.BUY:
+            # Full win: hit TP1
+            if price >= pending.take_profit_1:
+                outcome, correct = OUTCOME_WIN, True
+            # Full loss: hit SL
+            elif price <= pending.stop_loss:
+                outcome, correct = OUTCOME_LOSS, False
+            # Directional check at review time
+            elif price > pending.entry_price:
+                outcome, correct = OUTCOME_WIN, True
+            else:
+                outcome, correct = OUTCOME_LOSS, False
+        else:  # SELL
+            if price <= pending.take_profit_1:
+                outcome, correct = OUTCOME_WIN, True
+            elif price >= pending.stop_loss:
+                outcome, correct = OUTCOME_LOSS, False
+            elif price < pending.entry_price:
+                outcome, correct = OUTCOME_WIN, True
+            else:
+                outcome, correct = OUTCOME_LOSS, False
+
+        await self._write_outcome(pending, price, outcome, correct)
+
+        icon = "✅" if correct else "❌"
+        msg = (
+            f"\n{icon} SIGNAL OUTCOME — {outcome}\n"
+            f"   Symbol   : {pending.symbol}\n"
+            f"   Strategy : {pending.strategy_name}\n"
+            f"   Action   : {pending.action.value}\n"
+            f"   Entry    : {pending.entry_price:.4f}\n"
+            f"   Check px : {price:.4f}\n"
+            f"   Result   : {'CORRECT direction' if correct else 'WRONG direction'}\n"
+        )
+        print(msg, flush=True)
+
+        log.info(
+            "signal_outcome_resolved",
+            symbol=pending.symbol,
+            strategy=pending.strategy_name,
+            action=pending.action.value,
+            outcome=outcome,
+            entry=pending.entry_price,
+            check_price=price,
+            correct=correct,
+        )
+
+    async def _write_outcome(
+        self,
+        pending: PendingCheck,
+        price: float,
+        outcome: str,
+        correct: bool,
+    ) -> None:
+        import orjson
+
+        ml_features_json = (
+            orjson.dumps(pending.ml_features).decode()
+            if pending.ml_features else None
+        )
+
+        record = SignalOutcomeRecord(
+            id=pending.outcome_id,
+            signal_id=pending.signal_id,
+            symbol=pending.symbol,
+            strategy_name=pending.strategy_name,
+            action=pending.action.value,
+            entry_price=pending.entry_price,
+            check_price=price,
+            stop_loss=pending.stop_loss,
+            take_profit_1=pending.take_profit_1,
+            outcome=outcome,
+            direction_correct=correct,
+            check_after_minutes=self._check_after,
+            ml_features=ml_features_json,
+            created_at=pending.created_at,
+            checked_at=datetime.now(timezone.utc) if outcome != OUTCOME_PENDING else None,
+        )
+        try:
+            async with get_session_factory()() as db_session:
+                repo = OutcomeRepository(db_session)
+                await repo.save_outcome(record)
+
+                # Update strategy performance stats
+                if outcome in (OUTCOME_WIN, OUTCOME_LOSS):
+                    await repo.upsert_strategy_performance(
+                        pending.strategy_name, won=correct
+                    )
+                    # Refresh muted set
+                    stats = await repo.get_strategy_stats()
+                    muted = {s["strategy"] for s in stats if s["muted"]}
+                    _MUTED_STRATEGIES.clear()
+                    _MUTED_STRATEGIES.update(muted)
+                    if muted:
+                        log.info("strategies_muted", muted=list(muted))
+
+                    # Notify ML classifier of new outcome for potential retrain
+                    if pending.ml_features:
+                        try:
+                            from libs.ml.signal_classifier import get_classifier
+                            get_classifier().record_outcome(pending.ml_features, win=correct)
+                        except Exception as ml_exc:
+                            log.debug("ml_record_outcome_failed", error=str(ml_exc))
+        except Exception as exc:
+            log.warning("outcome_db_save_failed", error=str(exc))
+
+    async def _save_pending(self, pending: PendingCheck) -> None:
+        import orjson
+
+        ml_features_json = (
+            orjson.dumps(pending.ml_features).decode()
+            if pending.ml_features else None
+        )
+        record = SignalOutcomeRecord(
+            id=pending.outcome_id,
+            signal_id=pending.signal_id,
+            symbol=pending.symbol,
+            strategy_name=pending.strategy_name,
+            action=pending.action.value,
+            entry_price=pending.entry_price,
+            check_price=0.0,
+            stop_loss=pending.stop_loss,
+            take_profit_1=pending.take_profit_1,
+            outcome=OUTCOME_PENDING,
+            direction_correct=False,
+            check_after_minutes=self._check_after,
+            ml_features=ml_features_json,
+            created_at=pending.created_at,
+            checked_at=None,
+        )
+        try:
+            async with get_session_factory()() as db_session:
+                repo = OutcomeRepository(db_session)
+                await repo.save_outcome(record)
+        except Exception as exc:
+            log.warning("pending_outcome_save_failed", error=str(exc))
