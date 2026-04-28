@@ -141,6 +141,16 @@ class SignalPipeline:
             df = await self._provider.get_candles(symbol, timeframe, start, now)
             df = self._builder.enrich(df)
 
+            # ── 1b. Fetch HTF data (best-effort; silently fall back to None) ──
+            df_htf: pd.DataFrame | None = None
+            htf_tf = self._htf_timeframe(timeframe)
+            if htf_tf is not None:
+                try:
+                    df_htf = await self._provider.get_candles(symbol, htf_tf, start, now)
+                    df_htf = self._builder.enrich(df_htf)
+                except Exception:
+                    df_htf = None  # HTF failure is non-fatal
+
             # ── 2. Session (needed before quality to gate staleness check) ──
             session_mgr = get_session_manager(asset_class)
             session = session_mgr.get_state(symbol, now)
@@ -167,6 +177,11 @@ class SignalPipeline:
 
             # ── 4. Context engines ────────────────────────────────────────
             structure = self._structure.analyze(df)
+            htf_structure = (
+                self._structure.analyze(df_htf)
+                if df_htf is not None and len(df_htf) >= 11
+                else None
+            )
             levels = self._levels.analyze(df, asset_class)
             regime = self._regime.analyze(df)
             indicators = self._indicators.compute(df)
@@ -191,7 +206,7 @@ class SignalPipeline:
                         symbol=symbol,
                         asset_class=asset_class,
                         df=df,
-                        df_htf=None,
+                        df_htf=df_htf,
                         session=session,
                         quality=quality,
                         structure=structure,
@@ -216,6 +231,12 @@ class SignalPipeline:
                 candidate = candidate.model_copy(
                     update={"pattern_results": pattern_results}
                 )
+
+                # Override higher_tf_bias with real HTF structure if available
+                if htf_structure is not None:
+                    candidate = candidate.model_copy(
+                        update={"higher_tf_bias": htf_structure.trend}
+                    )
 
                 # Volume context now that we have proposed_action
                 volume = self._volume.analyze(df, candidate.proposed_action)
@@ -307,6 +328,21 @@ class SignalPipeline:
             )
 
         return outputs
+
+    _HTF_MAP: dict[Timeframe, Timeframe] = {
+        Timeframe.ONE_MIN:     Timeframe.FIVE_MIN,
+        Timeframe.THREE_MIN:   Timeframe.FIFTEEN_MIN,
+        Timeframe.FIVE_MIN:    Timeframe.FIFTEEN_MIN,
+        Timeframe.FIFTEEN_MIN: Timeframe.ONE_HOUR,
+        Timeframe.THIRTY_MIN:  Timeframe.FOUR_HOUR,
+        Timeframe.ONE_HOUR:    Timeframe.FOUR_HOUR,
+        Timeframe.FOUR_HOUR:   Timeframe.ONE_DAY,
+        Timeframe.ONE_DAY:     Timeframe.ONE_WEEK,
+    }
+
+    @classmethod
+    def _htf_timeframe(cls, tf: Timeframe) -> Timeframe | None:
+        return cls._HTF_MAP.get(tf)
 
     @staticmethod
     def _timeframe_seconds(tf: Timeframe) -> int:
