@@ -23,13 +23,14 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from libs.core.logging.logger import get_logger
 from libs.core.models.domain import SignalAction, SignalOutput
 from libs.data.storage.db import get_session_factory
 from libs.data.storage.models import SignalOutcomeRecord
 from libs.data.storage.repository import OutcomeRepository
+from libs.monitoring.portfolio_guard import get_portfolio_guard
 
 log = get_logger(__name__)
 
@@ -287,6 +288,20 @@ class SignalOutcomeTracker:
                             get_classifier().record_outcome(pending.ml_features, win=correct)
                         except Exception as ml_exc:
                             log.debug("ml_record_outcome_failed", error=str(ml_exc))
+
+                    # Release the guard slot; record loss so circuit breaker can trigger
+                    try:
+                        guard = get_portfolio_guard()
+                        guard.release(UUID(pending.signal_id))
+                        if outcome == OUTCOME_LOSS:
+                            try:
+                                from libs.core.config.settings import get_settings
+                                loss_pct = get_settings().risk.max_risk_per_signal_pct
+                            except Exception:
+                                loss_pct = 1.0
+                            guard.record_loss(loss_pct)
+                    except Exception as guard_exc:
+                        log.debug("portfolio_guard_update_failed", error=str(guard_exc))
         except Exception as exc:
             log.warning("outcome_db_save_failed", error=str(exc))
 
