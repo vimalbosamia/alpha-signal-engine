@@ -202,18 +202,6 @@ class SignalOutcomeTracker:
 
         await self._write_outcome(pending, price, outcome, correct)
 
-        icon = "+" if correct else "-"
-        msg = (
-            f"\n[{icon}] SIGNAL OUTCOME — {outcome}\n"
-            f"   Symbol   : {pending.symbol}\n"
-            f"   Strategy : {pending.strategy_name}\n"
-            f"   Action   : {pending.action.value}\n"
-            f"   Entry    : {pending.entry_price:.4f}\n"
-            f"   Check px : {price:.4f}\n"
-            f"   Result   : {'TP1 HIT' if correct else 'SL HIT'}\n"
-        )
-        print(msg, flush=True)
-
         log.info(
             "signal_outcome_resolved",
             symbol=pending.symbol,

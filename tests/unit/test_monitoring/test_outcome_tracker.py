@@ -29,6 +29,15 @@ from libs.monitoring.outcome_tracker import (
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _outcome_from_call(mock_call):
+    """Extract (outcome, correct) from either positional or keyword call."""
+    args = mock_call.call_args.args
+    kwargs = mock_call.call_args.kwargs
+    outcome = args[2] if len(args) > 2 else kwargs["outcome"]
+    correct = args[3] if len(args) > 3 else kwargs["correct"]
+    return outcome, correct
+
+
 def make_pending(
     action: SignalAction = SignalAction.BUY,
     entry_price: float = 100.0,
@@ -75,7 +84,7 @@ async def test_buy_tp1_hit_resolves_as_win():
 
     assert result is True
     tracker._write_outcome.assert_awaited_once()
-    _, _, outcome, correct = tracker._write_outcome.call_args.args
+    outcome, correct = _outcome_from_call(tracker._write_outcome)
     assert outcome == OUTCOME_WIN
     assert correct is True
 
@@ -89,7 +98,7 @@ async def test_buy_tp1_exceeded_resolves_as_win():
     result = await tracker._resolve(pending)
 
     assert result is True
-    _, _, outcome, correct = tracker._write_outcome.call_args.args
+    outcome, correct = _outcome_from_call(tracker._write_outcome)
     assert outcome == OUTCOME_WIN
     assert correct is True
 
@@ -103,7 +112,7 @@ async def test_buy_sl_hit_resolves_as_loss():
     result = await tracker._resolve(pending)
 
     assert result is True
-    _, _, outcome, correct = tracker._write_outcome.call_args.args
+    outcome, correct = _outcome_from_call(tracker._write_outcome)
     assert outcome == OUTCOME_LOSS
     assert correct is False
 
@@ -117,7 +126,7 @@ async def test_buy_sl_breached_resolves_as_loss():
     result = await tracker._resolve(pending)
 
     assert result is True
-    _, _, outcome, correct = tracker._write_outcome.call_args.args
+    outcome, correct = _outcome_from_call(tracker._write_outcome)
     assert outcome == OUTCOME_LOSS
     assert correct is False
 
@@ -139,7 +148,7 @@ async def test_sell_tp1_hit_resolves_as_win():
     result = await tracker._resolve(pending)
 
     assert result is True
-    _, _, outcome, correct = tracker._write_outcome.call_args.args
+    outcome, correct = _outcome_from_call(tracker._write_outcome)
     assert outcome == OUTCOME_WIN
     assert correct is True
 
@@ -158,7 +167,7 @@ async def test_sell_sl_hit_resolves_as_loss():
     result = await tracker._resolve(pending)
 
     assert result is True
-    _, _, outcome, correct = tracker._write_outcome.call_args.args
+    outcome, correct = _outcome_from_call(tracker._write_outcome)
     assert outcome == OUTCOME_LOSS
     assert correct is False
 
