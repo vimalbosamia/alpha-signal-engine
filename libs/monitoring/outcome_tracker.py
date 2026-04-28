@@ -1,11 +1,17 @@
 """
-SignalOutcomeTracker — checks if BUY/SELL signals were directionally correct.
+SignalOutcomeTracker — checks if BUY/SELL signals hit TP1 or SL.
 
-After `check_after_minutes`, fetches the current price and compares to entry:
-  - BUY  correct → price > entry
-  - SELL correct → price < entry
+Every poll cycle (30-second interval), ALL pending signals are checked:
+  - BUY  WIN  → price >= take_profit_1
+  - BUY  LOSS → price <= stop_loss
+  - SELL WIN  → price <= take_profit_1
+  - SELL LOSS → price >= stop_loss
 
-Also checks TP1/SL for full win/loss classification.
+A signal remains PENDING until TP1 or SL is actually hit, or until
+MAX_SIGNAL_AGE_HOURS elapses — at which point it is marked EXPIRED.
+
+There is NO directional fallback; interim price between SL and TP1
+does not resolve the signal.
 
 Results are stored in `signal_outcomes` table.
 Per-strategy win rates are maintained in `strategy_performance` table.
@@ -53,7 +59,7 @@ class PendingCheck:
     entry_price: float
     stop_loss: float
     take_profit_1: float
-    check_at: datetime      # UTC time when we should check
+    check_at: datetime      # UTC time when signal was scheduled (reference only; does not gate resolution)
     created_at: datetime
     ml_features: list[float] | None = None   # feature vector for ML training
 
@@ -138,73 +144,73 @@ class SignalOutcomeTracker:
 
     async def _process_due(self) -> None:
         now = datetime.now(timezone.utc)
-        due = [p for p in self._queue if p.check_at <= now]
-        if not due:
-            return
+        resolved: list[str] = []
 
-        tasks = [self._resolve(p) for p in due]
-        await asyncio.gather(*tasks, return_exceptions=True)
+        # Check ALL pending signals every cycle — resolution is price-driven, not time-driven
+        tasks = [self._resolve(p) for p in self._queue]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for p, resolved_flag in zip(self._queue, results):
+            if resolved_flag is True:
+                resolved.append(p.outcome_id)
 
-        # Remove resolved from queue
-        resolved_ids = {p.outcome_id for p in due}
-        self._queue = [p for p in self._queue if p.outcome_id not in resolved_ids]
+        self._queue = [p for p in self._queue if p.outcome_id not in resolved]
 
-        # Expire very old signals still pending
+        # Expire signals older than MAX_SIGNAL_AGE_HOURS where TP1/SL was never hit
         cutoff = now - timedelta(hours=self.MAX_SIGNAL_AGE_HOURS)
         stale = [p for p in self._queue if p.created_at < cutoff]
         for p in stale:
             await self._write_outcome(p, price=0.0, outcome=OUTCOME_EXPIRED, correct=False)
-        self._queue = [p for p in self._queue if p not in stale]
+        self._queue = [p for p in self._queue if p.outcome_id not in {s.outcome_id for s in stale}]
 
-    async def _resolve(self, pending: PendingCheck) -> None:
+    async def _resolve(self, pending: PendingCheck) -> bool:
+        """Check if TP1 or SL has been hit.
+
+        Returns True if the signal is now resolved (WIN or LOSS written to DB).
+        Returns False if neither level has been hit — signal stays pending.
+        Never raises; all exceptions are caught and logged.
+        """
         provider = self._crypto if pending.asset_class == "crypto" else self._stock
         if provider is None:
-            await self._write_outcome(pending, 0.0, OUTCOME_EXPIRED, False)
-            return
+            return False
 
         try:
             price = await provider.get_latest_price(pending.symbol)
         except Exception as exc:
             log.debug("outcome_price_fetch_failed", symbol=pending.symbol, error=str(exc))
-            return
+            return False
 
         if price is None or price <= 0:
-            return
+            return False
 
-        # Determine outcome
+        outcome: str | None = None
+        correct: bool = False
+
         if pending.action == SignalAction.BUY:
-            # Full win: hit TP1
             if price >= pending.take_profit_1:
                 outcome, correct = OUTCOME_WIN, True
-            # Full loss: hit SL
             elif price <= pending.stop_loss:
-                outcome, correct = OUTCOME_LOSS, False
-            # Directional check at review time
-            elif price > pending.entry_price:
-                outcome, correct = OUTCOME_WIN, True
-            else:
                 outcome, correct = OUTCOME_LOSS, False
         else:  # SELL
             if price <= pending.take_profit_1:
                 outcome, correct = OUTCOME_WIN, True
             elif price >= pending.stop_loss:
                 outcome, correct = OUTCOME_LOSS, False
-            elif price < pending.entry_price:
-                outcome, correct = OUTCOME_WIN, True
-            else:
-                outcome, correct = OUTCOME_LOSS, False
+
+        if outcome is None:
+            # Price is between SL and TP1 — signal remains pending
+            return False
 
         await self._write_outcome(pending, price, outcome, correct)
 
-        icon = "✅" if correct else "❌"
+        icon = "+" if correct else "-"
         msg = (
-            f"\n{icon} SIGNAL OUTCOME — {outcome}\n"
+            f"\n[{icon}] SIGNAL OUTCOME — {outcome}\n"
             f"   Symbol   : {pending.symbol}\n"
             f"   Strategy : {pending.strategy_name}\n"
             f"   Action   : {pending.action.value}\n"
             f"   Entry    : {pending.entry_price:.4f}\n"
             f"   Check px : {price:.4f}\n"
-            f"   Result   : {'CORRECT direction' if correct else 'WRONG direction'}\n"
+            f"   Result   : {'TP1 HIT' if correct else 'SL HIT'}\n"
         )
         print(msg, flush=True)
 
@@ -218,6 +224,7 @@ class SignalOutcomeTracker:
             check_price=price,
             correct=correct,
         )
+        return True
 
     async def _write_outcome(
         self,
