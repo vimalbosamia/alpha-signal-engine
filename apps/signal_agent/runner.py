@@ -16,8 +16,11 @@ from libs.data.providers.alpaca.provider import AlpacaDataProvider
 from libs.data.providers.binance.provider import BinanceDataProvider
 from libs.data.providers.binance_futures.provider import BinanceFuturesProvider
 from libs.strategies.reversal.hammer_reversal import HammerReversalStrategy
+from libs.strategies.reversal.shooting_star_reversal import ShootingStarReversalStrategy
 from libs.strategies.breakout.resistance_breakout import ResistanceBreakoutStrategy
+from libs.strategies.breakout.support_breakdown import SupportBreakdownStrategy
 from libs.strategies.continuation.pullback import PullbackContinuationStrategy
+from libs.strategies.continuation.pullback_bear import PullbackBearContinuationStrategy
 from libs.strategies.momentum.rsi_strategy import RSIStrategy
 from libs.strategies.momentum.macd_crossover import MACDCrossoverStrategy
 from libs.strategies.trend.ema_crossover import EMACrossoverStrategy
@@ -32,8 +35,11 @@ log = get_logger(__name__)
 
 DEFAULT_STRATEGIES = [
     HammerReversalStrategy(),
+    ShootingStarReversalStrategy(),
     ResistanceBreakoutStrategy(),
+    SupportBreakdownStrategy(),
     PullbackContinuationStrategy(),
+    PullbackBearContinuationStrategy(),
     RSIStrategy(),
     MACDCrossoverStrategy(),
     EMACrossoverStrategy(),
