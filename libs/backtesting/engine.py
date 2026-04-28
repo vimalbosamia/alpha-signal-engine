@@ -45,6 +45,9 @@ OUTCOME_WIN_TP2 = "WIN_TP2"
 OUTCOME_LOSS_SL = "LOSS_SL"
 OUTCOME_TIMEOUT = "TIMEOUT"
 
+OOS_ROBUST_THRESHOLD: float = 0.70   # OOS win rate must be >= 70% of IS win rate
+MIN_WF_BARS: int = 100               # minimum bars required per walk-forward split
+
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 
@@ -154,6 +157,18 @@ class BacktestResult:
         )
 
 
+# ── Walk-forward result ────────────────────────────────────────────────────────
+
+@dataclass(frozen=True)
+class WalkForwardResult:
+    """Results from a walk-forward split: in-sample (IS) vs out-of-sample (OOS)."""
+    in_sample: BacktestResult
+    out_of_sample: BacktestResult
+    is_split_ratio: float         # fraction used for IS (e.g. 0.7)
+    oos_degradation: float        # oos_win_rate / is_win_rate; < 1.0 = degradation
+    is_robust: bool               # True if oos_degradation >= OOS_ROBUST_THRESHOLD
+
+
 # ── Engine ─────────────────────────────────────────────────────────────────────
 
 class BacktestEngine:
@@ -197,6 +212,87 @@ class BacktestEngine:
         except Exception as exc:
             log.error("backtest_engine_error", error=str(exc))
             return self._empty_result(symbol, strategy.name, timeframe, asset_class, config, df)
+
+    def run_walk_forward(
+        self,
+        df: pd.DataFrame,
+        strategy: "BaseStrategy",
+        asset_class: AssetClass,
+        timeframe: Timeframe,
+        is_split: float = 0.70,
+        config: BacktestConfig | None = None,
+    ) -> WalkForwardResult:
+        """
+        Split df into in-sample (first is_split fraction) and out-of-sample (rest).
+        Run full backtest on each half. Compute OOS degradation metric.
+        Minimum: each split must have at least MIN_WF_BARS bars.
+        Returns WalkForwardResult. Never raises.
+        """
+        if config is None:
+            config = BacktestConfig()
+
+        # Clamp is_split to [0.1, 0.9]
+        is_split = max(0.1, min(0.9, is_split))
+
+        symbol = str(df.index.name or "UNKNOWN")
+        if hasattr(df, "attrs") and "symbol" in df.attrs:
+            symbol = df.attrs["symbol"]
+
+        try:
+            split_idx = int(len(df) * is_split)
+            df_is = df.iloc[:split_idx]
+            df_oos = df.iloc[split_idx:]
+
+            # Fall back to full-df backtest for both splits if either is too small
+            if len(df_is) < MIN_WF_BARS or len(df_oos) < MIN_WF_BARS:
+                log.warning(
+                    "walk_forward_too_few_bars",
+                    total_bars=len(df),
+                    is_bars=len(df_is),
+                    oos_bars=len(df_oos),
+                    min_wf_bars=MIN_WF_BARS,
+                )
+                df_is = df
+                df_oos = df
+
+            try:
+                is_result = self.run(df_is, strategy, asset_class, timeframe, config)
+            except Exception as exc:
+                log.error("walk_forward_is_error", error=str(exc))
+                is_result = self._empty_result(symbol, strategy.name, timeframe, asset_class, config, df_is)
+
+            try:
+                oos_result = self.run(df_oos, strategy, asset_class, timeframe, config)
+            except Exception as exc:
+                log.error("walk_forward_oos_error", error=str(exc))
+                oos_result = self._empty_result(symbol, strategy.name, timeframe, asset_class, config, df_oos)
+
+            oos_degradation = (
+                oos_result.win_rate / is_result.win_rate
+                if is_result.win_rate > 0
+                else 1.0
+            )
+            is_robust = oos_degradation >= OOS_ROBUST_THRESHOLD
+
+            return WalkForwardResult(
+                in_sample=is_result,
+                out_of_sample=oos_result,
+                is_split_ratio=is_split,
+                oos_degradation=oos_degradation,
+                is_robust=is_robust,
+            )
+
+        except Exception as exc:
+            log.error("walk_forward_error", error=str(exc))
+            empty_is = self._empty_result(symbol, getattr(strategy, "name", "unknown"), timeframe, asset_class, config, df)
+            empty_oos = self._empty_result(symbol, getattr(strategy, "name", "unknown"), timeframe, asset_class, config, df)
+            return WalkForwardResult(
+                in_sample=empty_is,
+                out_of_sample=empty_oos,
+                is_split_ratio=is_split,
+                oos_degradation=1.0,
+                is_robust=True,
+            )
 
     # ── Internal ───────────────────────────────────────────────────────────────
 

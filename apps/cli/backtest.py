@@ -20,7 +20,7 @@ from rich.console import Console
 from rich.table import Table
 from rich import box
 
-from libs.backtesting.engine import BacktestConfig, BacktestEngine
+from libs.backtesting.engine import BacktestConfig, BacktestEngine, OOS_ROBUST_THRESHOLD
 from libs.core.models.domain import AssetClass, Timeframe
 
 app = typer.Typer(help="AI Trading Signal Agent — Backtesting CLI")
@@ -148,6 +148,7 @@ def run(
     risk_pct: Annotated[float, typer.Option("--risk-pct", help="Risk per trade (%)")] = 1.0,
     min_score: Annotated[float, typer.Option("--min-score", help="Min confluence score (0-1)")] = 0.50,
     show_trades: Annotated[bool, typer.Option("--trades/--no-trades", help="Show trade log")] = False,
+    walk_forward: Annotated[bool, typer.Option("--walk-forward", help="Run walk-forward IS/OOS split")] = False,
 ) -> None:
     """Run a backtest for a strategy on historical data."""
 
@@ -179,18 +180,6 @@ def run(
     console.print(f"[green]{len(df)} bars loaded.[/green]")
 
     engine = BacktestEngine()
-    console.print("Running backtest...", end=" ")
-    result = engine.run(df, strat, ac, tf, config)
-    console.print("[green]done.[/green]\n")
-
-    # ── Summary table ──────────────────────────────────────────────────────────
-    summary = Table(
-        title=f"Backtest Results — {symbol} [{strategy}]",
-        box=box.ROUNDED,
-        show_header=False,
-    )
-    summary.add_column("Metric", style="bold cyan", no_wrap=True)
-    summary.add_column("Value", justify="right")
 
     def _pct(v: float) -> str:
         return f"{v:+.2f}%"
@@ -198,48 +187,49 @@ def run(
     def _r(v: float) -> str:
         return f"{v:+.3f}R"
 
-    summary.add_row("Symbol", symbol)
-    summary.add_row("Strategy", strategy)
-    summary.add_row("Timeframe", timeframe)
-    summary.add_row("Period", f"{days} days")
-    summary.add_row("Bars Tested", str(result.bars_tested))
-    summary.add_row("", "")
-    summary.add_row("Total Signals", str(result.total_signals))
-    summary.add_row("Total Trades", str(result.total_trades))
-    summary.add_row("Wins", f"[green]{result.wins}[/green]")
-    summary.add_row("Losses", f"[red]{result.losses}[/red]")
-    summary.add_row("Timeouts", str(result.timeouts))
-    summary.add_row("Win Rate", f"[{'green' if result.win_rate >= 0.5 else 'red'}]{result.win_rate:.1%}[/]")
-    summary.add_row("", "")
-    summary.add_row("Avg Win", _r(result.avg_win_r))
-    summary.add_row("Avg Loss", _r(result.avg_loss_r))
-    summary.add_row(
-        "Expectancy",
-        f"[{'green' if result.expectancy_r >= 0 else 'red'}]{_r(result.expectancy_r)}[/]",
-    )
-    summary.add_row("Profit Factor", f"{result.profit_factor:.2f}x")
-    summary.add_row("Sharpe Ratio", f"{result.sharpe_ratio:.2f}")
-    summary.add_row("", "")
-    summary.add_row("Initial Capital", f"${config.initial_capital:,.2f}")
-    summary.add_row("Final Capital", f"${result.final_capital:,.2f}")
-    summary.add_row(
-        "Total Return",
-        f"[{'green' if result.total_return_pct >= 0 else 'red'}]{_pct(result.total_return_pct)}[/]",
-    )
-    summary.add_row(
-        "Max Drawdown",
-        f"[{'red' if result.max_drawdown_pct > 10 else 'yellow'}]-{result.max_drawdown_pct:.1f}%[/]",
-    )
+    def _print_result_table(result: "BacktestResult", title: str) -> None:  # type: ignore[name-defined]
+        summary = Table(title=title, box=box.ROUNDED, show_header=False)
+        summary.add_column("Metric", style="bold cyan", no_wrap=True)
+        summary.add_column("Value", justify="right")
 
-    console.print(summary)
-
-    # ── Trade log ──────────────────────────────────────────────────────────────
-    if show_trades and result.trades:
-        trade_table = Table(
-            title="Trade Log",
-            box=box.SIMPLE,
-            show_lines=False,
+        summary.add_row("Symbol", symbol)
+        summary.add_row("Strategy", strategy)
+        summary.add_row("Timeframe", timeframe)
+        summary.add_row("Period", f"{days} days")
+        summary.add_row("Bars Tested", str(result.bars_tested))
+        summary.add_row("", "")
+        summary.add_row("Total Signals", str(result.total_signals))
+        summary.add_row("Total Trades", str(result.total_trades))
+        summary.add_row("Wins", f"[green]{result.wins}[/green]")
+        summary.add_row("Losses", f"[red]{result.losses}[/red]")
+        summary.add_row("Timeouts", str(result.timeouts))
+        summary.add_row("Win Rate", f"[{'green' if result.win_rate >= 0.5 else 'red'}]{result.win_rate:.1%}[/]")
+        summary.add_row("", "")
+        summary.add_row("Avg Win", _r(result.avg_win_r))
+        summary.add_row("Avg Loss", _r(result.avg_loss_r))
+        summary.add_row(
+            "Expectancy",
+            f"[{'green' if result.expectancy_r >= 0 else 'red'}]{_r(result.expectancy_r)}[/]",
         )
+        summary.add_row("Profit Factor", f"{result.profit_factor:.2f}x")
+        summary.add_row("Sharpe Ratio", f"{result.sharpe_ratio:.2f}")
+        summary.add_row("", "")
+        summary.add_row("Initial Capital", f"${config.initial_capital:,.2f}")
+        summary.add_row("Final Capital", f"${result.final_capital:,.2f}")
+        summary.add_row(
+            "Total Return",
+            f"[{'green' if result.total_return_pct >= 0 else 'red'}]{_pct(result.total_return_pct)}[/]",
+        )
+        summary.add_row(
+            "Max Drawdown",
+            f"[{'red' if result.max_drawdown_pct > 10 else 'yellow'}]-{result.max_drawdown_pct:.1f}%[/]",
+        )
+        console.print(summary)
+
+    def _print_trade_log(result: "BacktestResult") -> None:  # type: ignore[name-defined]
+        if not result.trades:
+            return
+        trade_table = Table(title="Trade Log", box=box.SIMPLE, show_lines=False)
         trade_table.add_column("#", style="dim", width=4)
         trade_table.add_column("Action", width=6)
         trade_table.add_column("Entry", justify="right", width=10)
@@ -261,10 +251,44 @@ def run(
                 f"[{color}]{t.pnl_pct:+.2f}%[/]",
                 str(t.bars_held),
             )
-
         console.print(trade_table)
 
-    console.print(f"\n[dim]{result.summary()}[/dim]\n")
+    if walk_forward:
+        console.print("Running walk-forward backtest...", end=" ")
+        wf = engine.run_walk_forward(df, strat, ac, tf, config=config)
+        console.print("[green]done.[/green]\n")
+
+        _print_result_table(wf.in_sample, f"In-Sample Results — {symbol} [{strategy}]")
+        if show_trades:
+            _print_trade_log(wf.in_sample)
+        console.print(f"\n[dim]{wf.in_sample.summary()}[/dim]\n")
+
+        _print_result_table(wf.out_of_sample, f"Out-of-Sample Results — {symbol} [{strategy}]")
+        if show_trades:
+            _print_trade_log(wf.out_of_sample)
+        console.print(f"\n[dim]{wf.out_of_sample.summary()}[/dim]\n")
+
+        robust_label = "ROBUST" if wf.is_robust else "OVERFITTED"
+        color = "green" if wf.is_robust else "red"
+        console.print(
+            f"[{color}]OOS Degradation: {wf.oos_degradation:.1%} — {robust_label}[/{color}]"
+        )
+        if not wf.is_robust:
+            console.print(
+                f"[yellow]Warning: OOS win rate degraded below {OOS_ROBUST_THRESHOLD:.0%} of IS win rate.[/yellow]"
+            )
+    else:
+        console.print("Running backtest...", end=" ")
+        result = engine.run(df, strat, ac, tf, config)
+        console.print("[green]done.[/green]\n")
+
+        _print_result_table(result, f"Backtest Results — {symbol} [{strategy}]")
+
+        # ── Trade log ─────────────────────────────────────────────────────────
+        if show_trades:
+            _print_trade_log(result)
+
+        console.print(f"\n[dim]{result.summary()}[/dim]\n")
 
 
 if __name__ == "__main__":

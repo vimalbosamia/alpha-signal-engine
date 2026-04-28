@@ -23,6 +23,7 @@ from libs.backtesting.engine import (
     BacktestEngine,
     BacktestResult,
     Trade,
+    WalkForwardResult,
 )
 from libs.core.models.domain import AssetClass, SignalAction, Timeframe
 
@@ -565,3 +566,58 @@ class TestNoPyramiding:
         assert result.total_trades < result.bars_tested
         # All trades are sequential (each holds at least 1 bar)
         assert all(t.bars_held >= 1 for t in result.trades)
+
+
+# ── Walk-forward validation ────────────────────────────────────────────────────
+
+class TestWalkForward:
+    def _make_df(self, n=300):
+        """Make a minimal df large enough for walk-forward."""
+        import numpy as np
+        np.random.seed(0)
+        c = 100.0 + np.cumsum(np.random.randn(n) * 0.5)
+        return pd.DataFrame({
+            "open": c * 0.999, "high": c * 1.002,
+            "low": c * 0.997, "close": c, "volume": np.full(n, 1000.0)
+        })
+
+    def test_walk_forward_returns_result(self):
+        from libs.strategies.momentum.rsi_strategy import RSIStrategy
+        engine = BacktestEngine()
+        df = self._make_df(300)
+        result = engine.run_walk_forward(df, RSIStrategy(), AssetClass.CRYPTO, Timeframe.FIFTEEN_MIN)
+        assert isinstance(result, WalkForwardResult)
+
+    def test_is_split_ratio_respected(self):
+        from libs.strategies.momentum.rsi_strategy import RSIStrategy
+        engine = BacktestEngine()
+        # Use 500 bars so both IS (~350) and OOS (~150) exceed MIN_WF_BARS=100
+        df = self._make_df(500)
+        result = engine.run_walk_forward(df, RSIStrategy(), AssetClass.CRYPTO, Timeframe.FIFTEEN_MIN, is_split=0.70)
+        assert result.is_split_ratio == 0.70
+        # IS should have ~350 bars, OOS ~150
+        assert result.in_sample.total_bars <= 355
+        assert result.out_of_sample.total_bars <= 155
+
+    def test_oos_degradation_computed(self):
+        from libs.strategies.momentum.rsi_strategy import RSIStrategy
+        engine = BacktestEngine()
+        df = self._make_df(300)
+        result = engine.run_walk_forward(df, RSIStrategy(), AssetClass.CRYPTO, Timeframe.FIFTEEN_MIN)
+        assert 0.0 <= result.oos_degradation  # non-negative
+
+    def test_is_robust_flag(self):
+        from libs.strategies.momentum.rsi_strategy import RSIStrategy
+        engine = BacktestEngine()
+        df = self._make_df(300)
+        result = engine.run_walk_forward(df, RSIStrategy(), AssetClass.CRYPTO, Timeframe.FIFTEEN_MIN)
+        # is_robust should be bool (either value OK for random data)
+        assert isinstance(result.is_robust, bool)
+
+    def test_small_df_doesnt_crash(self):
+        """Too-small df should not crash — falls back gracefully."""
+        from libs.strategies.momentum.rsi_strategy import RSIStrategy
+        engine = BacktestEngine()
+        df = self._make_df(50)   # too small for walk-forward
+        result = engine.run_walk_forward(df, RSIStrategy(), AssetClass.CRYPTO, Timeframe.FIFTEEN_MIN)
+        assert isinstance(result, WalkForwardResult)
