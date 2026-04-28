@@ -48,6 +48,23 @@ def is_strategy_muted(strategy_name: str) -> bool:
     return strategy_name in _MUTED_STRATEGIES
 
 
+async def load_muted_strategies_from_db() -> int:
+    """Load muted strategies from DB into in-memory set. Returns count loaded.
+    Call once at server startup before the pipeline runs."""
+    try:
+        async with get_session_factory()() as db_session:
+            repo = OutcomeRepository(db_session)
+            stats = await repo.get_strategy_stats()
+        muted = {s["strategy"] for s in stats if s["muted"]}
+        _MUTED_STRATEGIES.clear()
+        _MUTED_STRATEGIES.update(muted)
+        log.info("muted_strategies_loaded", count=len(muted), strategies=list(muted))
+        return len(muted)
+    except Exception as exc:
+        log.warning("muted_strategies_load_failed", error=str(exc))
+        return 0
+
+
 @dataclass
 class PendingCheck:
     outcome_id: str

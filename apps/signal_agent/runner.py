@@ -25,7 +25,7 @@ from libs.audit.audit_log import AuditLog
 from libs.monitoring.metrics import MetricsCollector
 from libs.core.events.bus import EventBus
 from libs.monitoring.position_watcher import PositionWatcher
-from libs.monitoring.outcome_tracker import SignalOutcomeTracker
+from libs.monitoring.outcome_tracker import SignalOutcomeTracker, load_muted_strategies_from_db
 from apps.signal_agent.pipeline import SignalPipeline
 
 log = get_logger(__name__)
@@ -156,6 +156,8 @@ class SignalRunner:
     async def run_loop(self, interval_seconds: int = 300) -> None:
         """Run continuously, sleeping between passes. Starts position watcher."""
         log.info("runner_started", interval_seconds=interval_seconds)
+        # Restore muted strategies from DB before the pipeline starts
+        await load_muted_strategies_from_db()
         # Launch position watcher as a concurrent background task
         watcher_task = asyncio.create_task(self._watcher.run_loop())
         outcome_task = asyncio.create_task(self._outcome_tracker.run_loop())
