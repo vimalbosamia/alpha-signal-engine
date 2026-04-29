@@ -9,6 +9,14 @@ Design rules:
   - All models use Pydantic v2 for validation and serialisation
   - Enums for every categorical field
   - No Optional[str] when "" suffices
+
+Phase 1 additions (institutional upgrade):
+  - TradingMode, SignalType, Direction, RiskLevel, SignalQuality,
+    SetupGrade, TradeDecision, ValidationStatus enums
+  - BiasScores, EntryZone, StrategyResult, IndicatorResult,
+    RiskResult, FuturesRiskResult models
+  - Candle.source, PatternResult.category/reliability/candle_index
+  - SignalOutput extended with new optional fields (backward compat)
 """
 from __future__ import annotations
 
@@ -26,6 +34,101 @@ class AssetClass(str, Enum):
     STOCK = "stock"
     CRYPTO = "crypto"
 
+
+# ── Phase 1: New enumerations ─────────────────────────────────────────────────
+
+class TradingMode(str, Enum):
+    """Whether this signal is for a spot or leveraged-futures position."""
+    SPOT = "spot"
+    FUTURES = "futures"
+
+
+class SignalType(str, Enum):
+    """
+    Granular signal classification replacing the legacy BUY/SELL.
+
+    SPOT signals:
+      SPOT_BUY       — enter or add to a spot long position
+      SPOT_SELL_EXIT — exit or reduce an existing spot position
+      SPOT_NO_TRADE  — no actionable spot setup
+
+    FUTURES signals:
+      FUTURES_LONG   — enter a leveraged long (perpetual futures)
+      FUTURES_SHORT  — enter a leveraged short (perpetual futures)
+      FUTURES_NO_TRADE — no actionable futures setup
+    """
+    SPOT_BUY = "SPOT_BUY"
+    SPOT_SELL_EXIT = "SPOT_SELL_EXIT"
+    SPOT_NO_TRADE = "SPOT_NO_TRADE"
+    FUTURES_LONG = "FUTURES_LONG"
+    FUTURES_SHORT = "FUTURES_SHORT"
+    FUTURES_NO_TRADE = "FUTURES_NO_TRADE"
+
+
+class Direction(str, Enum):
+    """Normalised direction across spot and futures signal types."""
+    LONG = "LONG"
+    SHORT = "SHORT"
+    EXIT = "EXIT"
+    NO_TRADE = "NO_TRADE"
+
+
+class RiskLevel(str, Enum):
+    LOW = "low"
+    MODERATE = "moderate"
+    HIGH = "high"
+    EXTREME = "extreme"
+
+
+class SignalQuality(str, Enum):
+    """Operator-facing quality tier, distinct from numeric confidence."""
+    INSTITUTIONAL = "institutional"   # A+ setup, all confirmations
+    HIGH = "high"                     # A  setup
+    MODERATE = "moderate"             # B  setup
+    LOW = "low"                       # C  setup
+    REJECT = "reject"                 # Avoid — do not act
+
+
+class SetupGrade(str, Enum):
+    """
+    Graded quality of the trade setup.
+
+    A+ — all confirmations, regime aligned, HTF aligned, strong volume
+    A  — most confirmations, minor conflict only
+    B  — tradable but requires manual review
+    C  — weak, usually pass
+    Avoid — should never be traded
+    """
+    A_PLUS = "A+"
+    A = "A"
+    B = "B"
+    C = "C"
+    AVOID = "Avoid"
+
+
+class TradeDecision(str, Enum):
+    """
+    Recommended operator action for this signal.
+
+    TAKE  — execute if account risk allows (A+/A grade only)
+    WAIT  — monitor; conditions not fully confirmed yet
+    SKIP  — setup exists but too risky / low quality to act
+    NO_TRADE — no setup; discard
+    """
+    TAKE = "TAKE"
+    WAIT = "WAIT"
+    SKIP = "SKIP"
+    NO_TRADE = "NO_TRADE"
+
+
+class ValidationStatus(str, Enum):
+    """Whether this strategy has a proven walk-forward edge."""
+    VALIDATED = "validated"          # passed OOS walk-forward
+    UNVALIDATED = "unvalidated"      # no walk-forward test run yet
+    INSUFFICIENT_DATA = "insufficient_data"  # < minimum sample threshold
+
+
+# ── End Phase 1 new enumerations ──────────────────────────────────────────────
 
 class SignalAction(str, Enum):
     BUY = "BUY"
@@ -108,6 +211,7 @@ class Candle(BaseModel):
     vwap: float | None = None
     trade_count: int | None = None
     is_confirmed: bool = True        # False = candle still building
+    source: str = ""                 # provider identifier, e.g. "binance", "alpaca"
 
     @field_validator("high")
     @classmethod
@@ -225,6 +329,12 @@ class PatternResult(BaseModel):
     candle_span: int = 1
     details: dict[str, Any] = Field(default_factory=dict)
 
+    # Phase 1 additions
+    category: str = ""               # "single" | "two_candle" | "multi_candle"
+    reliability: float = Field(ge=0.0, le=1.0, default=0.0)   # historical hit rate (0 = unknown)
+    candle_index: int = -1           # index of last candle in pattern (-1 = not set)
+    source_timestamp: datetime | None = None  # timestamp of the pattern's last candle
+
     @property
     def is_actionable(self) -> bool:
         return self.detected and self.confidence >= 0.60
@@ -289,6 +399,130 @@ class ConfluenceBreakdown(BaseModel):
         )
 
 
+# ── Phase 1: New institutional models ────────────────────────────────────────
+
+class BiasScores(BaseModel):
+    """
+    Composite directional scores produced by BullBearBiasEngine.
+    All four scores sum to approximately 1.0 but are not strictly normalised —
+    conflictScore can push the total above 1.0 when signals disagree.
+    """
+    model_config = {"frozen": True}
+
+    bullish_score: float = Field(ge=0.0, le=1.0, default=0.0)
+    bearish_score: float = Field(ge=0.0, le=1.0, default=0.0)
+    neutral_score: float = Field(ge=0.0, le=1.0, default=0.0)
+    conflict_score: float = Field(ge=0.0, le=1.0, default=0.0)   # high = mixed signals
+    upside_probability: float = Field(ge=0.0, le=1.0, default=0.0)
+    downside_probability: float = Field(ge=0.0, le=1.0, default=0.0)
+
+    @property
+    def dominant_bias(self) -> str:
+        """Return 'bullish', 'bearish', 'neutral', or 'conflict'."""
+        scores = {
+            "bullish": self.bullish_score,
+            "bearish": self.bearish_score,
+            "neutral": self.neutral_score,
+            "conflict": self.conflict_score,
+        }
+        return max(scores, key=lambda k: scores[k])
+
+
+class EntryZone(BaseModel):
+    """Price zone where entry is considered valid."""
+    model_config = {"frozen": True}
+
+    low: float
+    high: float
+
+    @property
+    def mid(self) -> float:
+        return (self.low + self.high) / 2.0
+
+    @property
+    def width_pct(self) -> float:
+        mid = self.mid
+        if mid <= 0:
+            return 0.0
+        return abs(self.high - self.low) / mid * 100.0
+
+
+class StrategyResult(BaseModel):
+    """
+    Per-strategy analysis output attached to a signal for transparency.
+    Used by the BullBearBiasEngine and signal grading layer.
+    """
+    model_config = {"frozen": True}
+
+    strategy_name: str
+    produced_candidate: bool         # True if strategy found a valid setup
+    confidence: float = Field(ge=0.0, le=1.0, default=0.0)
+    bullish_score: float = Field(ge=0.0, le=1.0, default=0.0)
+    bearish_score: float = Field(ge=0.0, le=1.0, default=0.0)
+    reasons: list[str] = Field(default_factory=list)
+    failed_confirmations: list[str] = Field(default_factory=list)
+    required_confirmations: list[str] = Field(default_factory=list)
+    risk_notes: list[str] = Field(default_factory=list)
+    validation_status: ValidationStatus = ValidationStatus.UNVALIDATED
+
+
+class IndicatorResult(BaseModel):
+    """Snapshot of a single indicator's current state and bias."""
+    model_config = {"frozen": True}
+
+    name: str
+    value: float
+    bias: PatternBias = PatternBias.NEUTRAL
+    strength: float = Field(ge=0.0, le=1.0, default=0.0)
+    explanation: str = ""
+
+
+class RiskResult(BaseModel):
+    """
+    Full risk profile for a signal setup.
+    Superset of what RiskEngine currently returns — adds invalidation
+    level and operator-facing cost warnings.
+    """
+    model_config = {"frozen": True}
+
+    entry: float
+    stop_loss: float
+    take_profit_1: float
+    take_profit_2: float | None = None
+    risk_reward_ratio: float = 0.0
+    invalidation_level: float | None = None   # price that definitively invalidates setup
+    max_loss_percent: float = 0.0             # (entry - stop_loss) / entry * 100
+    volatility_warning: str = ""
+    liquidity_warning: str = ""
+    spread_warning: str = ""
+    slippage_warning: str = ""
+
+    @property
+    def has_warnings(self) -> bool:
+        return bool(
+            self.volatility_warning or self.liquidity_warning
+            or self.spread_warning or self.slippage_warning
+        )
+
+
+class FuturesRiskResult(BaseModel):
+    """
+    Futures-specific risk fields.
+    Required on every FUTURES_LONG or FUTURES_SHORT signal.
+    """
+    model_config = {"frozen": True}
+
+    leverage: float = Field(ge=1.0, default=1.0)
+    margin_type: str = "isolated"                   # "isolated" | "cross"
+    estimated_liquidation_price: float = 0.0
+    liquidation_buffer_percent: float = 0.0        # (liq - entry) / entry * 100
+    liquidation_risk: RiskLevel = RiskLevel.LOW
+    funding_fee_risk: RiskLevel = RiskLevel.LOW
+    max_loss_before_stop: float = 0.0              # $ loss at stop level after fees
+
+
+# ── End Phase 1 new institutional models ─────────────────────────────────────
+
 # ── Final signal output ───────────────────────────────────────────────────────
 
 class SignalOutput(BaseModel):
@@ -338,6 +572,24 @@ class SignalOutput(BaseModel):
     generated_at: datetime = Field(default_factory=datetime.utcnow)
     agent_mode: str = ""
     data_provider: str = ""
+
+    # ── Phase 1: institutional output contract (all optional, backward compat) ─
+    trading_mode: TradingMode = TradingMode.SPOT
+    signal_type: SignalType | None = None        # None = legacy BUY/SELL not yet migrated
+    direction: Direction = Direction.NO_TRADE
+    bias_scores: BiasScores | None = None
+    risk_level: RiskLevel = RiskLevel.MODERATE
+    signal_quality: SignalQuality = SignalQuality.MODERATE
+    validation_status: ValidationStatus = ValidationStatus.UNVALIDATED
+    setup_grade: SetupGrade | None = None
+    trade_decision: TradeDecision = TradeDecision.NO_TRADE
+    invalidation_level: float | None = None
+    failed_confirmations: list[str] = Field(default_factory=list)
+    risk_result: RiskResult | None = None
+    futures_risk: FuturesRiskResult | None = None
+    strategy_results: list[StrategyResult] = Field(default_factory=list)
+    indicator_results: list[IndicatorResult] = Field(default_factory=list)
+    # ── End Phase 1 additions ──────────────────────────────────────────────────
 
     def to_display(self) -> str:
         """Human-readable one-liner for terminal output."""
