@@ -316,6 +316,76 @@ class DataQualityReport(BaseModel):
         return self.status != DataQualityStatus.BLOCKED
 
 
+# ── Candle validation result (Phase 2) ────────────────────────────────────────
+
+class CandleSeverity(str, Enum):
+    """Severity level for CandleValidationResult."""
+    CLEAN = "clean"
+    WARNING = "warning"
+    CRITICAL = "critical"   # forces NO_TRADE regardless of strategy signals
+
+
+class CandleValidationResult(BaseModel):
+    """
+    Result of CandleValidator.validate().
+
+    Fields:
+        is_valid          — False only when CRITICAL issues found
+        severity          — CLEAN / WARNING / CRITICAL
+        warnings          — non-blocking issues (outliers, gaps, stale bars …)
+        errors            — blocking issues (negative prices, OHLC violations …)
+        should_block_signal — True forces downstream pipeline to emit NO_TRADE
+        candles_checked   — number of candles inspected
+    """
+    model_config = {"frozen": True}
+
+    is_valid: bool
+    severity: CandleSeverity
+    warnings: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    should_block_signal: bool
+    candles_checked: int = 0
+
+    @classmethod
+    def clean(cls, candles_checked: int) -> "CandleValidationResult":
+        return cls(
+            is_valid=True,
+            severity=CandleSeverity.CLEAN,
+            should_block_signal=False,
+            candles_checked=candles_checked,
+        )
+
+    @classmethod
+    def from_issues(
+        cls,
+        errors: list[str],
+        warnings: list[str],
+        candles_checked: int,
+        strict: bool = False,
+    ) -> "CandleValidationResult":
+        """Build result from collected issue lists.
+
+        strict=True promotes warnings to CRITICAL (blocks signal).
+        """
+        if errors:
+            severity = CandleSeverity.CRITICAL
+        elif warnings and strict:
+            severity = CandleSeverity.CRITICAL
+        elif warnings:
+            severity = CandleSeverity.WARNING
+        else:
+            severity = CandleSeverity.CLEAN
+
+        return cls(
+            is_valid=severity != CandleSeverity.CRITICAL,
+            severity=severity,
+            errors=errors,
+            warnings=warnings,
+            should_block_signal=severity == CandleSeverity.CRITICAL,
+            candles_checked=candles_checked,
+        )
+
+
 # ── Pattern result ────────────────────────────────────────────────────────────
 
 class PatternResult(BaseModel):
