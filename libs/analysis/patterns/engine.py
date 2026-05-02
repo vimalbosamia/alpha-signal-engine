@@ -150,7 +150,11 @@ class CandlePatternEngine:
 
         Returns:
             List of PatternResult with detected=True, sorted by confidence descending.
+            candle_index in each result is the 0-based index within the provided candles sequence (not a global bar index).
         """
+        if not (0.0 <= min_confidence <= 1.0):
+            raise ValueError(f"min_confidence must be in [0.0, 1.0], got {min_confidence!r}")
+
         if len(candles) == 0:
             return []
 
@@ -185,7 +189,7 @@ class CandlePatternEngine:
             try:
                 result = detector.detect(df)
             except Exception as exc:
-                log.debug("pattern_detect_failed", detector=detector.name, error=str(exc))
+                log.warning("pattern_detect_failed", detector=detector.name, error=str(exc))
                 continue
 
             if not result.detected:
