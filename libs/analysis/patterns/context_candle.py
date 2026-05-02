@@ -26,10 +26,11 @@ def _f(row: pd.Series, col: str, default: float = 0.0) -> float:
 
 
 def _avg_range(df: pd.DataFrame, n: int = 10) -> float:
-    """Average high-low range over last n bars."""
-    if len(df) < 2:
+    """Average high-low range over last n prior bars, excluding the current bar."""
+    history = df.iloc[:-1]  # exclude current bar being evaluated
+    if len(history) < 1:
         return (float(df.iloc[-1]["high"]) - float(df.iloc[-1]["low"])) if len(df) else 1e-9
-    tail = df.tail(n)
+    tail = history.tail(n)
     ranges = tail["high"].astype(float) - tail["low"].astype(float)
     return float(ranges.mean()) or 1e-9
 
@@ -180,7 +181,7 @@ class PinBarDetector(BasePatternDetector):
             rv = _f(curr, "relative_volume", 1.0)
             vol_bonus = self._vol_bonus(rv)
             # Bullish pin: small body, long lower wick, tiny upper wick
-            if body_pct < 0.35 and lower_wick >= 0.60 * rng and upper_wick <= 0.15 * rng:
+            if body_pct < 0.35 and lower_wick >= self._threshold(0.60) * rng and upper_wick <= 0.15 * rng:
                 conf = min(1.0, 0.55 + min(0.30, (lower_wick / rng - 0.60) * 0.8) + vol_bonus)
                 return self._result(
                     conf,
@@ -191,7 +192,7 @@ class PinBarDetector(BasePatternDetector):
                     reliability=0.62,
                 )
             # Bearish pin: small body, long upper wick, tiny lower wick
-            if body_pct < 0.35 and upper_wick >= 0.60 * rng and lower_wick <= 0.15 * rng:
+            if body_pct < 0.35 and upper_wick >= self._threshold(0.60) * rng and lower_wick <= 0.15 * rng:
                 conf = min(1.0, 0.55 + min(0.30, (upper_wick / rng - 0.60) * 0.8) + vol_bonus)
                 return self._result(
                     conf,
@@ -243,7 +244,7 @@ class RejectionCandleDetector(BasePatternDetector):
             rv = _f(curr, "relative_volume", 1.0)
             vol_bonus = self._vol_bonus(rv)
             # Bullish rejection: small-ish body, long lower wick, bullish close
-            if body_pct < 0.45 and lower_wick >= 0.50 * rng and c > o:
+            if body_pct < 0.45 and lower_wick >= self._threshold(0.50) * rng and c > o:
                 conf = min(0.85, 0.50 + (lower_wick / rng - 0.50) * 0.4 + vol_bonus)
                 return self._result(
                     conf,
@@ -254,7 +255,7 @@ class RejectionCandleDetector(BasePatternDetector):
                     reliability=0.58,
                 )
             # Bearish rejection: small-ish body, long upper wick, bearish close
-            if body_pct < 0.45 and upper_wick >= 0.50 * rng and c < o:
+            if body_pct < 0.45 and upper_wick >= self._threshold(0.50) * rng and c < o:
                 conf = min(0.85, 0.50 + (upper_wick / rng - 0.50) * 0.4 + vol_bonus)
                 return self._result(
                     conf,
@@ -277,7 +278,7 @@ class BreakoutCandleDetector(BasePatternDetector):
     Signals a genuine directional break with momentum.
     """
 
-    min_bars_required = 5
+    min_bars_required = 6
 
     @property
     def name(self) -> str:
@@ -288,7 +289,7 @@ class BreakoutCandleDetector(BasePatternDetector):
         return PatternBias.NEUTRAL
 
     def detect(self, df: pd.DataFrame) -> PatternResult:
-        if len(df) < 5:
+        if len(df) < 6:
             return self._no_pattern()
         try:
             avg_r = _avg_range(df, n=10)
@@ -306,7 +307,7 @@ class BreakoutCandleDetector(BasePatternDetector):
             rv = _f(current, "relative_volume", 1.0)
             vol_bonus = self._vol_bonus(rv)
             # Bullish breakout
-            if curr_close > prior_high and body_pct >= 0.55 and curr_range >= avg_r * 1.2:
+            if curr_close > prior_high and body_pct >= self._threshold(0.55) and curr_range >= avg_r * 1.2:
                 conf = min(1.0, 0.55 + min(0.25, (curr_range / avg_r - 1.2) * 0.1) + vol_bonus)
                 return self._result(
                     conf,
@@ -317,7 +318,7 @@ class BreakoutCandleDetector(BasePatternDetector):
                     reliability=0.60,
                 )
             # Bearish breakout
-            if curr_close < prior_low and body_pct >= 0.55 and curr_range >= avg_r * 1.2:
+            if curr_close < prior_low and body_pct >= self._threshold(0.55) and curr_range >= avg_r * 1.2:
                 conf = min(1.0, 0.55 + min(0.25, (curr_range / avg_r - 1.2) * 0.1) + vol_bonus)
                 return self._result(
                     conf,
@@ -425,7 +426,7 @@ class MomentumCandleDetector(BasePatternDetector):
             body_pct = curr_body / (curr_range + 1e-9)
             rv = _f(current, "relative_volume", 1.0)
             vol_bonus = self._vol_bonus(rv)
-            if not (body_pct >= 0.65 and curr_range >= avg_r * 0.8):
+            if not (body_pct >= self._threshold(0.65) and curr_range >= avg_r * 0.8):
                 return self._no_pattern()
             conf = min(1.0, 0.50 + min(0.25, body_pct * 0.3) + vol_bonus)
             if c > o:
@@ -490,6 +491,8 @@ class LongWickCandleDetector(BasePatternDetector):
             wick_to_body = total_wick / (body + 1e-9)
             if wick_to_body < 2.5:
                 return self._no_pattern({"wick_to_body": round(wick_to_body, 2)})
+            # Confidence is intentionally below 0.60 — this is a confluence-only pattern;
+            # it is never independently actionable via is_actionable.
             conf = min(1.0, 0.42 + min(0.20, (wick_to_body - 2.5) * 0.05))
             return self._result(
                 conf,
@@ -530,6 +533,8 @@ class NarrowRangeCandleDetector(BasePatternDetector):
             curr_range = float(curr["high"]) - float(curr["low"])
             if curr_range >= avg_r * 0.60:
                 return self._no_pattern({"range_ratio": round(curr_range / avg_r, 3)})
+            # Confidence is intentionally below 0.60 — this is a confluence-only pattern;
+            # it is never independently actionable via is_actionable.
             conf = min(1.0, 0.45 + min(0.20, (1.0 - curr_range / avg_r) * 0.30))
             return self._result(
                 conf,
@@ -628,11 +633,13 @@ class TrapCandleDetector(BasePatternDetector):
             prior_slice = df.iloc[-lookback_count - 1:-1]
             lookback_high = float(prior_slice["high"].astype(float).max())
             lookback_low = float(prior_slice["low"].astype(float).min())
+            lookback_range = lookback_high - lookback_low
             rv = _f(current, "relative_volume", 1.0)
             vol_bonus = self._vol_bonus(rv)
-            conf = min(1.0, 0.55 + vol_bonus)
             # Bull trap (BEARISH): opened above high, closed back below it
             if curr_open > lookback_high and curr_close < lookback_high:
+                reversal_magnitude = min(0.15, (lookback_high - curr_close) / (lookback_range + 1e-9) * 0.3)
+                conf = min(1.0, 0.55 + reversal_magnitude + vol_bonus)
                 return self._result(
                     conf,
                     {"lookback_high": round(lookback_high, 6), "open": round(curr_open, 6)},
@@ -643,6 +650,8 @@ class TrapCandleDetector(BasePatternDetector):
                 )
             # Bear trap (BULLISH): opened below low, closed back above it
             if curr_open < lookback_low and curr_close > lookback_low:
+                reversal_magnitude = min(0.15, (curr_close - lookback_low) / (lookback_range + 1e-9) * 0.3)
+                conf = min(1.0, 0.55 + reversal_magnitude + vol_bonus)
                 return self._result(
                     conf,
                     {"lookback_low": round(lookback_low, 6), "open": round(curr_open, 6)},
@@ -681,8 +690,6 @@ class FailedBreakoutCandleDetector(BasePatternDetector):
             bar_minus_1 = df.iloc[-1]   # current
             bar_minus_2 = df.iloc[-2]   # prior
             lookback_bars = df.iloc[-min(5, len(df)):-2]
-            if len(lookback_bars) == 0:
-                return self._no_pattern()
             lb_high = float(lookback_bars["high"].astype(float).max())
             lb_low = float(lookback_bars["low"].astype(float).min())
             curr_close = float(bar_minus_1["close"])
