@@ -43,7 +43,13 @@ class BullishEngulfingDetector(BasePatternDetector):
         ratio = curr_body / (prev_body + 1e-9)
         rv = _f(c, "relative_volume", 1.0)
         conf = min(1.0, 0.55 + min(0.30, (ratio - 1.0) * 0.15) + self._vol_bonus(rv))
-        return self._result(conf, {"engulf_ratio": round(ratio, 2)})
+        return self._result(
+            conf,
+            {"engulf_ratio": round(ratio, 2)},
+            category="reversal",
+            reliability=0.63,
+            explanation=f"Bullish engulfing: current body {ratio:.1f}x prior — buyers overwhelm prior sellers",
+        )
 
 
 class BearishEngulfingDetector(BasePatternDetector):
@@ -67,7 +73,13 @@ class BearishEngulfingDetector(BasePatternDetector):
         ratio = curr_body / (prev_body + 1e-9)
         rv = _f(c, "relative_volume", 1.0)
         conf = min(1.0, 0.55 + min(0.30, (ratio - 1.0) * 0.15) + self._vol_bonus(rv))
-        return self._result(conf, {"engulf_ratio": round(ratio, 2)})
+        return self._result(
+            conf,
+            {"engulf_ratio": round(ratio, 2)},
+            category="reversal",
+            reliability=0.63,
+            explanation=f"Bearish engulfing: current body {ratio:.1f}x prior — sellers overwhelm prior buyers",
+        )
 
 
 # ── Harami ────────────────────────────────────────────────────────────────────
@@ -94,7 +106,13 @@ class BullishHaramiDetector(BasePatternDetector):
         c_body = c_top - c_bot
         contain = c_body / (p_body + 1e-9)
         conf = min(1.0, 0.50 + (1.0 - contain) * 0.35)
-        return self._result(conf, {"containment": round(contain, 3)})
+        return self._result(
+            conf,
+            {"containment": round(contain, 3)},
+            category="reversal",
+            reliability=0.50,
+            explanation="Bullish harami: small bullish bar inside prior bearish — momentum potentially exhausted",
+        )
 
 
 class BearishHaramiDetector(BasePatternDetector):
@@ -119,7 +137,13 @@ class BearishHaramiDetector(BasePatternDetector):
         c_body = c_top - c_bot
         contain = c_body / (p_body + 1e-9)
         conf = min(1.0, 0.50 + (1.0 - contain) * 0.35)
-        return self._result(conf, {"containment": round(contain, 3)})
+        return self._result(
+            conf,
+            {"containment": round(contain, 3)},
+            category="reversal",
+            reliability=0.50,
+            explanation="Bearish harami: small bearish bar inside prior bullish — momentum potentially exhausted",
+        )
 
 
 # ── Piercing Line ─────────────────────────────────────────────────────────────
@@ -152,7 +176,13 @@ class PiercingLineDetector(BasePatternDetector):
             return self._no_pattern({"reason": "insufficient penetration"})
         pen_score = (float(c["close"]) - mid) / (float(p["open"]) - mid + 1e-9)
         conf = min(1.0, 0.55 + pen_score * 0.25 + self._vol_bonus(_f(c, "relative_volume", 1.0)))
-        return self._result(conf, {"penetration": round(pen_score, 3)})
+        return self._result(
+            conf,
+            {"penetration": round(pen_score, 3)},
+            category="reversal",
+            reliability=0.58,
+            explanation=f"Piercing line: bullish bar closes {pen_score:.0%} into prior bearish body — buyers reclaiming ground",
+        )
 
 
 # ── Dark Cloud Cover ──────────────────────────────────────────────────────────
@@ -182,7 +212,13 @@ class DarkCloudCoverDetector(BasePatternDetector):
             return self._no_pattern()
         pen_score = (mid - float(c["close"])) / (mid - float(p["open"]) + 1e-9)
         conf = min(1.0, 0.55 + pen_score * 0.25 + self._vol_bonus(_f(c, "relative_volume", 1.0)))
-        return self._result(conf, {"penetration": round(pen_score, 3)})
+        return self._result(
+            conf,
+            {"penetration": round(pen_score, 3)},
+            category="reversal",
+            reliability=0.58,
+            explanation=f"Dark cloud cover: bearish bar closes {pen_score:.0%} into prior bullish body — sellers reclaiming ground",
+        )
 
 
 # ── Tweezers ──────────────────────────────────────────────────────────────────
@@ -210,7 +246,13 @@ class TweezerBottomDetector(BasePatternDetector):
             return self._no_pattern()
         precision = 1.0 - diff_pct / (tol + 1e-9)
         conf = min(1.0, 0.55 + precision * 0.30)
-        return self._result(conf, {"level": round(avg, 4)})
+        return self._result(
+            conf,
+            {"level": round(avg, 4)},
+            category="reversal",
+            reliability=0.55,
+            explanation=f"Tweezer bottom: matching lows at {avg:.4f} — failed breakdown, support confirmed",
+        )
 
 
 class TweezerTopDetector(BasePatternDetector):
@@ -236,4 +278,10 @@ class TweezerTopDetector(BasePatternDetector):
             return self._no_pattern()
         precision = 1.0 - diff_pct / (tol + 1e-9)
         conf = min(1.0, 0.55 + precision * 0.30)
-        return self._result(conf, {"level": round(avg, 4)})
+        return self._result(
+            conf,
+            {"level": round(avg, 4)},
+            category="reversal",
+            reliability=0.55,
+            explanation=f"Tweezer top: matching highs at {avg:.4f} — failed breakout, resistance confirmed",
+        )

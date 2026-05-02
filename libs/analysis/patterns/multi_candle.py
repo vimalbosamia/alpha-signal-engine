@@ -70,7 +70,13 @@ class MorningStarDetector(BasePatternDetector):
         pen_score = min(1.0, pen)
         vol_b = self._vol_bonus(_f(b3, "relative_volume", 1.0))
         conf = min(1.0, 0.60 + star_score * 0.15 + pen_score * 0.15 + vol_b)
-        return self._result(conf, {"star_body_pct": round(_body_pct(b2), 3)})
+        return self._result(
+            conf,
+            {"star_body_pct": round(_body_pct(b2), 3)},
+            category="reversal",
+            reliability=0.72,
+            explanation=f"Morning star: large bearish → small star ({_body_pct(b2):.0%} body) → bullish close above midpoint — strong reversal signal",
+        )
 
 
 # ── Evening Star ──────────────────────────────────────────────────────────────
@@ -101,7 +107,13 @@ class EveningStarDetector(BasePatternDetector):
         pen_score = min(1.0, pen)
         vol_b = self._vol_bonus(_f(b3, "relative_volume", 1.0))
         conf = min(1.0, 0.60 + star_score * 0.15 + pen_score * 0.15 + vol_b)
-        return self._result(conf, {"star_body_pct": round(_body_pct(b2), 3)})
+        return self._result(
+            conf,
+            {"star_body_pct": round(_body_pct(b2), 3)},
+            category="reversal",
+            reliability=0.72,
+            explanation=f"Evening star: large bullish → small star ({_body_pct(b2):.0%} body) → bearish close below midpoint — strong reversal signal",
+        )
 
 
 # ── Morning Doji Star ─────────────────────────────────────────────────────────
@@ -123,7 +135,12 @@ class MorningDojiStarDetector(BasePatternDetector):
         base = MorningStarDetector(self.mode).detect(df)
         if not base.detected: return self._no_pattern()
         # Doji star is more powerful — boost confidence slightly
-        return self._result(min(1.0, base.confidence + 0.05))
+        return self._result(
+            min(1.0, base.confidence + 0.05),
+            category="reversal",
+            reliability=0.75,
+            explanation="Morning doji star: large bearish → doji star → bullish close — high-reliability reversal",
+        )
 
 
 # ── Evening Doji Star ─────────────────────────────────────────────────────────
@@ -144,7 +161,12 @@ class EveningDojiStarDetector(BasePatternDetector):
         if not _is_doji(b2): return self._no_pattern()
         base = EveningStarDetector(self.mode).detect(df)
         if not base.detected: return self._no_pattern()
-        return self._result(min(1.0, base.confidence + 0.05))
+        return self._result(
+            min(1.0, base.confidence + 0.05),
+            category="reversal",
+            reliability=0.75,
+            explanation="Evening doji star: large bullish → doji star → bearish close — high-reliability reversal",
+        )
 
 
 # ── Three White Soldiers ──────────────────────────────────────────────────────
@@ -176,7 +198,13 @@ class ThreeWhiteSoldiersDetector(BasePatternDetector):
         avg_score = sum(_close_near_high(b) for b in [b1, b2, b3]) / 3
         if avg_score < self._threshold(0.60): return self._no_pattern()
         conf = min(1.0, 0.55 + avg_score * 0.35)
-        return self._result(conf, {"avg_close_near_high": round(avg_score, 3)})
+        return self._result(
+            conf,
+            {"avg_close_near_high": round(avg_score, 3)},
+            category="continuation",
+            reliability=0.70,
+            explanation=f"Three white soldiers: three consecutive bullish bars closing near highs (avg {avg_score:.0%}) — strong uptrend momentum",
+        )
 
 
 # ── Three Black Crows ─────────────────────────────────────────────────────────
@@ -208,7 +236,12 @@ class ThreeBlackCrowsDetector(BasePatternDetector):
         avg_score = sum(_close_near_low(b) for b in [b1, b2, b3]) / 3
         if avg_score < self._threshold(0.60): return self._no_pattern()
         conf = min(1.0, 0.55 + avg_score * 0.35)
-        return self._result(conf)
+        return self._result(
+            conf,
+            category="continuation",
+            reliability=0.70,
+            explanation=f"Three black crows: three consecutive bearish bars closing near lows (avg {avg_score:.0%}) — strong downtrend momentum",
+        )
 
 
 # ── Bullish Abandoned Baby ────────────────────────────────────────────────────
@@ -239,7 +272,12 @@ class BullishAbandonedBabyDetector(BasePatternDetector):
         if float(b3["low"]) <= float(b2["high"]): return self._no_pattern({"reason": "no gap up"})
 
         conf = min(1.0, 0.80 + self._vol_bonus(_f(b3, "relative_volume", 1.0)))
-        return self._result(conf)
+        return self._result(
+            conf,
+            category="reversal",
+            reliability=0.80,
+            explanation="Bullish abandoned baby: bearish → gapped-down doji → gapped-up bullish — rare, very high reliability reversal",
+        )
 
 
 # ── Bearish Abandoned Baby ────────────────────────────────────────────────────
@@ -264,7 +302,12 @@ class BearishAbandonedBabyDetector(BasePatternDetector):
         if float(b3["high"]) >= float(b2["low"]): return self._no_pattern()
 
         conf = min(1.0, 0.80 + self._vol_bonus(_f(b3, "relative_volume", 1.0)))
-        return self._result(conf)
+        return self._result(
+            conf,
+            category="reversal",
+            reliability=0.80,
+            explanation="Bearish abandoned baby: bullish → gapped-up doji → gapped-down bearish — rare, very high reliability reversal",
+        )
 
 
 # ── Rising Three Methods ──────────────────────────────────────────────────────
@@ -305,7 +348,12 @@ class RisingThreeMethodsDetector(BasePatternDetector):
         if float(b5["close"]) <= float(b1["close"]): return self._no_pattern()
 
         conf = min(1.0, 0.65 + self._vol_bonus(_f(b5, "relative_volume", 1.0)))
-        return self._result(conf)
+        return self._result(
+            conf,
+            category="continuation",
+            reliability=0.68,
+            explanation="Rising three methods: large bullish → three contained small bars → bullish close above — trend continuation confirmed",
+        )
 
 
 # ── Falling Three Methods ─────────────────────────────────────────────────────
@@ -339,4 +387,9 @@ class FallingThreeMethodsDetector(BasePatternDetector):
         if float(b5["close"]) >= float(b1["close"]): return self._no_pattern()
 
         conf = min(1.0, 0.65 + self._vol_bonus(_f(b5, "relative_volume", 1.0)))
-        return self._result(conf)
+        return self._result(
+            conf,
+            category="continuation",
+            reliability=0.68,
+            explanation="Falling three methods: large bearish → three contained small bars → bearish close below — trend continuation confirmed",
+        )

@@ -54,7 +54,13 @@ class HammerDetector(BasePatternDetector):
         if lw_ratio < min_lw or uw_ratio > max_uw * 0.5:
             return self._no_pattern({"lw_ratio": round(lw_ratio, 2)})
         conf = min(1.0, 0.55 + min(0.30, (lw_ratio - min_lw) / 3) + self._vol_bonus(rv))
-        return self._result(conf, {"lw_ratio": round(lw_ratio, 2), "rv": round(rv, 2)})
+        return self._result(
+            conf,
+            {"lw_ratio": round(lw_ratio, 2), "rv": round(rv, 2)},
+            category="reversal",
+            reliability=0.60,
+            explanation=f"Hammer: lower wick {lw_ratio:.1f}x body — rejection of lower prices",
+        )
 
 
 class InvertedHammerDetector(BasePatternDetector):
@@ -77,7 +83,12 @@ class InvertedHammerDetector(BasePatternDetector):
         if uw_ratio < self._threshold(2.0) or lw_ratio > 0.5:
             return self._no_pattern()
         conf = min(1.0, 0.50 + min(0.30, (uw_ratio - 2.0) / 3) + self._vol_bonus(rv))
-        return self._result(conf)
+        return self._result(
+            conf,
+            category="reversal",
+            reliability=0.55,
+            explanation=f"Inverted hammer: upper wick {uw_ratio:.1f}x body — potential buying pressure from below",
+        )
 
 
 # ── Shooting Star ─────────────────────────────────────────────────────────────
@@ -102,7 +113,12 @@ class ShootingStarDetector(BasePatternDetector):
         if uw_ratio < self._threshold(2.0) or lw_ratio > 0.5:
             return self._no_pattern()
         conf = min(1.0, 0.55 + min(0.30, (uw_ratio - 2.0) / 3) + self._vol_bonus(rv))
-        return self._result(conf)
+        return self._result(
+            conf,
+            category="reversal",
+            reliability=0.60,
+            explanation=f"Shooting star: upper wick {uw_ratio:.1f}x body — rejection of higher prices",
+        )
 
 
 # ── Hanging Man ───────────────────────────────────────────────────────────────
@@ -128,7 +144,12 @@ class HangingManDetector(BasePatternDetector):
             return self._no_pattern()
         # Hanging man is slightly less reliable than hammer — lower base confidence
         conf = min(1.0, 0.50 + min(0.25, (lw_ratio - 2.0) / 3) + self._vol_bonus(rv))
-        return self._result(conf)
+        return self._result(
+            conf,
+            category="reversal",
+            reliability=0.50,
+            explanation=f"Hanging man: lower wick {lw_ratio:.1f}x body — potential selling pressure from above",
+        )
 
 
 # ── Doji family ───────────────────────────────────────────────────────────────
@@ -163,7 +184,14 @@ class DojiDetector(BasePatternDetector):
             subtype, bias = "standard", PatternBias.NEUTRAL
 
         conf = min(1.0, 0.50 + (0.10 - body_pct) * 5)
-        return self._result(conf, {"subtype": subtype, "body_pct": round(body_pct, 4)}, bias)
+        return self._result(
+            conf,
+            {"subtype": subtype, "body_pct": round(body_pct, 4)},
+            bias,
+            category="indecision",
+            reliability=0.45,
+            explanation=f"Doji ({subtype}): body {body_pct:.1%} of range — buyers and sellers in equilibrium",
+        )
 
 
 class DragonflyDojiDetector(BasePatternDetector):
@@ -180,7 +208,12 @@ class DragonflyDojiDetector(BasePatternDetector):
         base = DojiDetector(self.mode).detect(df)
         if not base.detected: return self._no_pattern()
         if base.details.get("subtype") != "dragonfly": return self._no_pattern()
-        return self._result(base.confidence)
+        return self._result(
+            base.confidence,
+            category="reversal",
+            reliability=0.55,
+            explanation="Dragonfly doji: long lower wick, negligible upper — strong support rejection",
+        )
 
 
 class GravestoneDojiDetector(BasePatternDetector):
@@ -197,7 +230,12 @@ class GravestoneDojiDetector(BasePatternDetector):
         base = DojiDetector(self.mode).detect(df)
         if not base.detected: return self._no_pattern()
         if base.details.get("subtype") != "gravestone": return self._no_pattern()
-        return self._result(base.confidence)
+        return self._result(
+            base.confidence,
+            category="reversal",
+            reliability=0.55,
+            explanation="Gravestone doji: long upper wick, negligible lower — strong resistance rejection",
+        )
 
 
 # ── Spinning Top ──────────────────────────────────────────────────────────────
@@ -225,7 +263,12 @@ class SpinningTopDetector(BasePatternDetector):
         if uw_pct < 0.20 or lw_pct < 0.20:
             return self._no_pattern()
         conf = min(1.0, 0.45 + min(uw_pct, lw_pct) * 0.8)
-        return self._result(conf)
+        return self._result(
+            conf,
+            category="indecision",
+            reliability=0.40,
+            explanation="Spinning top: balanced wicks on both sides — market indecision, await confirmation",
+        )
 
 
 # ── Marubozu ─────────────────────────────────────────────────────────────────
@@ -249,7 +292,13 @@ class BullishMarubozuDetector(BasePatternDetector):
         if body_pct < self._threshold(0.80):
             return self._no_pattern({"body_pct": round(body_pct, 3)})
         conf = min(1.0, 0.60 + (body_pct - 0.80) * 1.5 + self._vol_bonus(rv))
-        return self._result(conf, {"body_pct": round(body_pct, 3)})
+        return self._result(
+            conf,
+            {"body_pct": round(body_pct, 3)},
+            category="continuation",
+            reliability=0.65,
+            explanation=f"Bullish marubozu: {body_pct:.0%} body, minimal wicks — strong buying momentum",
+        )
 
 
 class BearishMarubozuDetector(BasePatternDetector):
@@ -271,4 +320,10 @@ class BearishMarubozuDetector(BasePatternDetector):
         if body_pct < self._threshold(0.80):
             return self._no_pattern({"body_pct": round(body_pct, 3)})
         conf = min(1.0, 0.60 + (body_pct - 0.80) * 1.5 + self._vol_bonus(rv))
-        return self._result(conf, {"body_pct": round(body_pct, 3)})
+        return self._result(
+            conf,
+            {"body_pct": round(body_pct, 3)},
+            category="continuation",
+            reliability=0.65,
+            explanation=f"Bearish marubozu: {body_pct:.0%} body, minimal wicks — strong selling momentum",
+        )
