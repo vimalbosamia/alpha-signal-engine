@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator
@@ -400,7 +400,7 @@ class PatternResult(BaseModel):
     details: dict[str, Any] = Field(default_factory=dict)
 
     # Phase 1 additions
-    category: str = ""               # "reversal" | "continuation" | "indecision"
+    category: Literal["", "reversal", "continuation", "indecision"] = ""
     reliability: float = Field(ge=0.0, le=1.0, default=0.0)   # historical hit rate (0 = unknown)
     candle_index: int = -1           # index of last candle in pattern (-1 = not set)
     source_timestamp: datetime | None = None  # timestamp of the pattern's last candle
@@ -412,13 +412,13 @@ class PatternResult(BaseModel):
 
     @property
     def strength(self) -> int:
-        """Confidence as 0–100 integer for display/output."""
-        return int(self.confidence * 100)
+        """Confidence as 0–100 integer for display/output. Rounded to nearest integer."""
+        return int(round(self.confidence * 100))
 
     @property
     def reliability_score(self) -> int:
-        """Reliability as 0–100 integer for display/output."""
-        return int(self.reliability * 100)
+        """Reliability as 0–100 integer for display/output. Rounded to nearest integer."""
+        return int(round(self.reliability * 100))
 
 
 # ── Signal candidate (pre-scoring) ────────────────────────────────────────────

@@ -400,15 +400,74 @@ class TestPatternResultBackwardCompat:
             confidence=0.9,
             bias=PatternBias.BULLISH,
             candle_span=3,
-            category="multi_candle",
+            category="reversal",
             reliability=0.62,
             candle_index=198,
             source_timestamp=ts,
         )
-        assert pr.category == "multi_candle"
+        assert pr.category == "reversal"
         assert pr.reliability == 0.62
         assert pr.candle_index == 198
         assert pr.source_timestamp == ts
+
+
+def _pattern_result(
+    confidence: float = 0.7,
+    reliability: float = 0.0,
+    explanation: str = "",
+    category: str = "",
+) -> PatternResult:
+    return PatternResult(
+        pattern_name="test_pattern",
+        detected=True,
+        confidence=confidence,
+        reliability=reliability,
+        explanation=explanation,
+        category=category,
+        bias=PatternBias.NEUTRAL,
+    )
+
+
+class TestPatternResultNewProperties:
+    def test_strength_zero_confidence(self):
+        r = _pattern_result(confidence=0.0)
+        assert r.strength == 0
+        assert isinstance(r.strength, int)
+
+    def test_strength_full_confidence(self):
+        r = _pattern_result(confidence=1.0)
+        assert r.strength == 100
+        assert isinstance(r.strength, int)
+
+    def test_strength_partial_confidence(self):
+        r = _pattern_result(confidence=0.85)
+        assert r.strength == 85
+
+    def test_strength_rounds_not_truncates(self):
+        r = _pattern_result(confidence=0.999)
+        assert r.strength == 100  # rounds up, not truncates to 99
+
+    def test_reliability_score_partial(self):
+        r = _pattern_result(confidence=0.7, reliability=0.72)
+        assert r.reliability_score == 72
+        assert isinstance(r.reliability_score, int)
+
+    def test_reliability_score_zero(self):
+        r = _pattern_result(confidence=0.7, reliability=0.0)
+        assert r.reliability_score == 0
+
+    def test_explanation_field_stores_value(self):
+        r = _pattern_result(confidence=0.8, explanation="Bullish engulfing with volume confirmation")
+        assert r.explanation == "Bullish engulfing with volume confirmation"
+
+    def test_category_valid_values(self):
+        for cat in ["", "reversal", "continuation", "indecision"]:
+            r = _pattern_result(confidence=0.7, category=cat)
+            assert r.category == cat
+
+    def test_category_invalid_value_raises(self):
+        with pytest.raises(Exception):
+            _pattern_result(confidence=0.7, category="single")  # old invalid value
 
 
 # ── SignalOutput backward compat + new fields ─────────────────────────────────
