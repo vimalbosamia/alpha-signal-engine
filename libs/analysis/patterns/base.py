@@ -79,6 +79,9 @@ class BasePatternDetector(ABC):
         confidence: float,
         details: dict | None = None,
         bias: PatternBias | None = None,
+        explanation: str = "",
+        category: str = "",
+        reliability: float = 0.0,
     ) -> PatternResult:
         """Produce a detected=True result with mode-adjusted confidence."""
         adj_conf = min(1.0, confidence * _MODE_MODIFIERS[self.mode])
@@ -89,6 +92,9 @@ class BasePatternDetector(ABC):
             bias=bias or self.bias,
             candle_span=self.min_bars_required,
             details=details or {},
+            explanation=explanation,
+            category=category,
+            reliability=reliability,
         )
 
     def _threshold(self, base: float) -> float:

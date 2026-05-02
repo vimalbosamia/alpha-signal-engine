@@ -404,10 +404,21 @@ class PatternResult(BaseModel):
     reliability: float = Field(ge=0.0, le=1.0, default=0.0)   # historical hit rate (0 = unknown)
     candle_index: int = -1           # index of last candle in pattern (-1 = not set)
     source_timestamp: datetime | None = None  # timestamp of the pattern's last candle
+    explanation: str = ""            # human-readable explanation of why pattern was detected
 
     @property
     def is_actionable(self) -> bool:
         return self.detected and self.confidence >= 0.60
+
+    @property
+    def strength(self) -> int:
+        """Confidence as 0–100 integer for display/output."""
+        return int(self.confidence * 100)
+
+    @property
+    def reliability_score(self) -> int:
+        """Reliability as 0–100 integer for display/output."""
+        return int(self.reliability * 100)
 
 
 # ── Signal candidate (pre-scoring) ────────────────────────────────────────────
