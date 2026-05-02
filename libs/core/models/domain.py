@@ -400,7 +400,7 @@ class PatternResult(BaseModel):
     details: dict[str, Any] = Field(default_factory=dict)
 
     # Phase 1 additions
-    category: str = ""               # "single" | "two_candle" | "multi_candle"
+    category: str = ""               # "reversal" | "continuation" | "indecision"
     reliability: float = Field(ge=0.0, le=1.0, default=0.0)   # historical hit rate (0 = unknown)
     candle_index: int = -1           # index of last candle in pattern (-1 = not set)
     source_timestamp: datetime | None = None  # timestamp of the pattern's last candle
