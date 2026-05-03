@@ -60,8 +60,14 @@ def _names(results: list[PatternResult]) -> list[str]:
 
 class TestEngineSetup:
     def test_default_mode_is_balanced(self):
-        engine = CandlePatternEngine()
-        assert engine._detectors[0].mode == MatchingMode.BALANCED
+        # BALANCED (0.9x multiplier) → higher output confidence than LOOSE (0.75x multiplier)
+        candle = _c(100, 101.3, 90, 101)
+        balanced = CandlePatternEngine(MatchingMode.BALANCED).detect([candle])
+        loose = CandlePatternEngine(MatchingMode.LOOSE).detect([candle])
+        b_hammer = next((r for r in balanced if r.pattern_name == "hammer"), None)
+        l_hammer = next((r for r in loose if r.pattern_name == "hammer"), None)
+        assert b_hammer is not None and l_hammer is not None
+        assert b_hammer.confidence > l_hammer.confidence
 
     def test_detector_count_is_40(self):
         engine = _engine()
@@ -144,16 +150,18 @@ class TestDetectEdgeCases:
 
     def test_candle_index_set_on_all_results(self):
         engine = _engine()
-        candles = self._candles()
+        candles = [_c(100, 101.3, 90, 101)]  # hammer — guaranteed to produce results
         results = engine.detect(candles)
         expected_index = len(candles) - 1
+        assert len(results) > 0, "Expected at least one pattern to be detected"
         assert all(r.candle_index == expected_index for r in results)
 
     def test_source_timestamp_set_on_all_results(self):
         engine = _engine()
-        candles = self._candles()
+        candles = [_c(100, 101.3, 90, 101)]  # hammer — guaranteed to produce results
         results = engine.detect(candles)
         expected_ts = candles[-1].timestamp
+        assert len(results) > 0, "Expected at least one pattern to be detected"
         assert all(r.source_timestamp == expected_ts for r in results)
 
     def test_no_result_references_buy_sell(self):
@@ -192,9 +200,9 @@ class TestPatternResultContract:
 
     def test_all_results_have_explanation(self):
         results = self._detected_results()
-        # All detected results with category should have non-empty explanation
-        categorized = [r for r in results if r.category != ""]
-        assert all(r.explanation != "" for r in categorized)
+        assert len(results) > 0, "Expected at least one detected pattern"
+        # Every detected result must have a non-empty explanation
+        assert all(r.explanation != "" for r in results)
 
     def test_strength_is_int_0_to_100(self):
         results = self._detected_results()
@@ -309,6 +317,46 @@ class TestSingleCandlePatterns:
         r = next(r for r in results if r.pattern_name == "momentum_candle")
         assert r.bias == PatternBias.BULLISH
 
+    def test_inverted_hammer_detected(self):
+        # body=1, upper_wick=11 (11x body), lower_wick=0.4 (0.4x body < 0.5 limit)
+        candle = _c(100, 112, 99.6, 101)
+        results = _engine().detect([candle])
+        names = _names(results)
+        assert "inverted_hammer" in names
+        r = next(r for r in results if r.pattern_name == "inverted_hammer")
+        assert r.bias == PatternBias.BULLISH
+        assert r.category == "reversal"
+
+    def test_hanging_man_detected(self):
+        # body=1, lower_wick=10 (10x body), upper_wick=0.3 (0.3x body < 0.5 limit)
+        candle = _c(101, 101.3, 90, 100)
+        results = _engine().detect([candle])
+        names = _names(results)
+        assert "hanging_man" in names
+        r = next(r for r in results if r.pattern_name == "hanging_man")
+        assert r.bias == PatternBias.BEARISH
+        assert r.category == "reversal"
+
+    def test_dragonfly_doji_detected(self):
+        # body=0.05, rng=10.1, body_pct=0.5% → doji; uw=0.05, lw=10 → wick_ratio=0.005 < 0.33 → dragonfly
+        candle = _c(100, 100.1, 90, 100.05)
+        results = _engine().detect([candle])
+        names = _names(results)
+        assert "dragonfly_doji" in names
+        r = next(r for r in results if r.pattern_name == "dragonfly_doji")
+        assert r.bias == PatternBias.BULLISH
+        assert r.category == "reversal"
+
+    def test_gravestone_doji_detected(self):
+        # body=0.05, rng=10.1, body_pct=0.5% → doji; uw=9.95, lw=0.1 → wick_ratio=99.5 > 3.0 → gravestone
+        candle = _c(100, 110, 99.9, 100.05)
+        results = _engine().detect([candle])
+        names = _names(results)
+        assert "gravestone_doji" in names
+        r = next(r for r in results if r.pattern_name == "gravestone_doji")
+        assert r.bias == PatternBias.BEARISH
+        assert r.category == "reversal"
+
 
 # ---------------------------------------------------------------------------
 # Class 5: TestTwoCandlePatterns
@@ -367,6 +415,61 @@ class TestTwoCandlePatterns:
         assert r.bias == PatternBias.BEARISH
         assert r.category == "reversal"
 
+    def test_bullish_harami_detected(self):
+        # Prior bearish (o=110,c=98), current bullish contained inside prior body
+        prior = _c(110, 112, 95, 98, i=0)   # bearish; p_top=110, p_bot=98
+        curr  = _c(101, 106, 100, 104, i=1)  # bullish; c_bot=101>=98, c_top=104<=110
+        results = _engine().detect([prior, curr])
+        names = _names(results)
+        assert "bullish_harami" in names
+        r = next(r for r in results if r.pattern_name == "bullish_harami")
+        assert r.bias == PatternBias.BULLISH
+        assert r.category == "reversal"
+
+    def test_bearish_harami_detected(self):
+        # Prior bullish (o=98,c=112), current bearish contained inside prior body
+        prior = _c(98, 115, 97, 112, i=0)   # bullish; p_bot=98, p_top=112
+        curr  = _c(108, 110, 105, 106, i=1)  # bearish; c_bot=106>=98, c_top=108<=112
+        results = _engine().detect([prior, curr])
+        names = _names(results)
+        assert "bearish_harami" in names
+        r = next(r for r in results if r.pattern_name == "bearish_harami")
+        assert r.bias == PatternBias.BEARISH
+        assert r.category == "reversal"
+
+    def test_piercing_line_detected(self):
+        # Prior bearish (o=110,c=92,low=90,mid=101); current opens below low=90, closes above mid=101
+        prior = _c(110, 112, 90, 92, i=0)   # bearish; low=90; mid=101
+        curr  = _c(88, 115, 87, 108, i=1)   # bullish; open=88<90; close=108>101
+        results = _engine().detect([prior, curr])
+        names = _names(results)
+        assert "piercing_line" in names
+        r = next(r for r in results if r.pattern_name == "piercing_line")
+        assert r.bias == PatternBias.BULLISH
+        assert r.category == "reversal"
+
+    def test_dark_cloud_cover_detected(self):
+        # Prior bullish (o=90,c=108,high=110,mid=99); current opens above high=110, closes below mid=99
+        prior = _c(90, 110, 89, 108, i=0)   # bullish; high=110; mid=99
+        curr  = _c(112, 115, 88, 96, i=1)   # bearish; open=112>110; close=96<99
+        results = _engine().detect([prior, curr])
+        names = _names(results)
+        assert "dark_cloud_cover" in names
+        r = next(r for r in results if r.pattern_name == "dark_cloud_cover")
+        assert r.bias == PatternBias.BEARISH
+        assert r.category == "reversal"
+
+    def test_tweezer_top_detected(self):
+        # Matching highs 110.0/110.1 (diff_pct=0.00091 < tol=0.002); first bullish, second bearish
+        prior = _c(98, 110.0, 95, 108, i=0)   # bullish
+        curr  = _c(109, 110.1, 102, 104, i=1)  # bearish
+        results = _engine().detect([prior, curr])
+        names = _names(results)
+        assert "tweezer_top" in names
+        r = next(r for r in results if r.pattern_name == "tweezer_top")
+        assert r.bias == PatternBias.BEARISH
+        assert r.category == "reversal"
+
 
 # ---------------------------------------------------------------------------
 # Class 6: TestMultiCandlePatterns
@@ -406,6 +509,94 @@ class TestMultiCandlePatterns:
         assert "three_black_crows" in names
         r = next(r for r in results if r.pattern_name == "three_black_crows")
         assert r.bias == PatternBias.BEARISH
+
+    def test_evening_star_detected(self):
+        # Large bullish | small star | large bearish closing below b1 midpoint
+        b1 = _c(90, 120, 89, 115, i=0)    # bullish; body=25, rng=31, body_pct=80.6%; mid=102.5
+        b2 = _c(116, 118, 114, 117, i=1)  # small star; body=1, rng=4, body_pct=25%
+        b3 = _c(116, 117, 85, 88, i=2)    # bearish; body=28, rng=32, body_pct=87.5%; close=88<102.5
+        results = _engine().detect([b1, b2, b3])
+        names = _names(results)
+        assert "evening_star" in names
+        r = next(r for r in results if r.pattern_name == "evening_star")
+        assert r.bias == PatternBias.BEARISH
+        assert r.category == "reversal"
+
+    def test_morning_doji_star_detected(self):
+        # Large bearish | doji star | large bullish — doji body_pct=1.7%
+        b1 = _c(110, 112, 95, 97, i=0)    # bearish; body_pct=76.5%; mid=103.5
+        b2 = _c(96, 97, 94, 96.05, i=1)   # doji; body_pct=1.7% < 10%
+        b3 = _c(95, 115, 94, 112, i=2)    # bullish; body_pct=81%; close=112 > mid=103.5
+        results = _engine().detect([b1, b2, b3])
+        names = _names(results)
+        assert "morning_doji_star" in names
+        r = next(r for r in results if r.pattern_name == "morning_doji_star")
+        assert r.bias == PatternBias.BULLISH
+        assert r.category == "reversal"
+
+    def test_evening_doji_star_detected(self):
+        # Large bullish | doji star | large bearish — doji body_pct=1.7%
+        b1 = _c(90, 120, 89, 115, i=0)      # bullish; body_pct=80.6%; mid=102.5
+        b2 = _c(116, 117, 114, 116.05, i=1) # doji; body_pct=1.7% < 10%
+        b3 = _c(115, 116, 80, 85, i=2)      # bearish; body_pct=83.3%; close=85 < mid=102.5
+        results = _engine().detect([b1, b2, b3])
+        names = _names(results)
+        assert "evening_doji_star" in names
+        r = next(r for r in results if r.pattern_name == "evening_doji_star")
+        assert r.bias == PatternBias.BEARISH
+        assert r.category == "reversal"
+
+    def test_bullish_abandoned_baby_detected(self):
+        # Bearish | gapped-down doji (b2.high=92 < b1.low=95) | bullish gap-up (b3.low=93 > b2.high=92)
+        b1 = _c(110, 112, 95, 97, i=0)   # bearish; low=95
+        b2 = _c(90, 92, 88, 90.05, i=1)  # doji; body_pct=0.05/4=1.25%; high=92 < 95 ✓
+        b3 = _c(95, 115, 93, 112, i=2)   # bullish; low=93 > b2.high=92 ✓
+        results = _engine().detect([b1, b2, b3])
+        names = _names(results)
+        assert "bullish_abandoned_baby" in names
+        r = next(r for r in results if r.pattern_name == "bullish_abandoned_baby")
+        assert r.bias == PatternBias.BULLISH
+        assert r.category == "reversal"
+
+    def test_bearish_abandoned_baby_detected(self):
+        # Bullish | gapped-up doji (b2.low=113 > b1.high=112) | bearish gap-down (b3.high=112 < b2.low=113)
+        b1 = _c(95, 112, 94, 110, i=0)      # bullish; high=112
+        b2 = _c(115, 118, 113, 115.05, i=1) # doji; body_pct=1%; low=113 > 112 ✓
+        b3 = _c(110, 112, 90, 92, i=2)      # bearish; high=112 < b2.low=113 ✓
+        results = _engine().detect([b1, b2, b3])
+        names = _names(results)
+        assert "bearish_abandoned_baby" in names
+        r = next(r for r in results if r.pattern_name == "bearish_abandoned_baby")
+        assert r.bias == PatternBias.BEARISH
+        assert r.category == "reversal"
+
+    def test_rising_three_methods_detected(self):
+        # Large bullish | 3 small bars inside b1 range | large bullish above b1 close
+        b1 = _c(100, 120, 99, 118, i=0)   # bullish; body_pct=85.7%; close=118
+        b2 = _c(115, 118, 106, 110, i=1)  # small; body_pct=41.7%; inside b1 ✓
+        b3 = _c(111, 116, 108, 112, i=2)  # small; body_pct=12.5%; inside b1 ✓
+        b4 = _c(112, 117, 109, 113, i=3)  # small; body_pct=12.5%; inside b1 ✓
+        b5 = _c(113, 135, 112, 133, i=4)  # bullish; body_pct=87%; close=133 > 118 ✓
+        results = _engine().detect([b1, b2, b3, b4, b5])
+        names = _names(results)
+        assert "rising_three_methods" in names
+        r = next(r for r in results if r.pattern_name == "rising_three_methods")
+        assert r.bias == PatternBias.BULLISH
+        assert r.category == "continuation"
+
+    def test_falling_three_methods_detected(self):
+        # Large bearish | 3 small bars inside b1 range | large bearish below b1 close
+        b1 = _c(120, 121, 100, 102, i=0)  # bearish; body_pct=85.7%; close=102
+        b2 = _c(105, 112, 102, 108, i=1)  # small; body_pct=30%; inside b1 ✓
+        b3 = _c(107, 110, 104, 106, i=2)  # small; body_pct=16.7%; inside b1 ✓
+        b4 = _c(106, 109, 103, 105, i=3)  # small; body_pct=16.7%; inside b1 ✓
+        b5 = _c(104, 106, 80, 82, i=4)    # bearish; body_pct=84.6%; close=82 < 102 ✓
+        results = _engine().detect([b1, b2, b3, b4, b5])
+        names = _names(results)
+        assert "falling_three_methods" in names
+        r = next(r for r in results if r.pattern_name == "falling_three_methods")
+        assert r.bias == PatternBias.BEARISH
+        assert r.category == "continuation"
 
 
 # ---------------------------------------------------------------------------
@@ -447,6 +638,52 @@ class TestContextPatterns:
         r = next(r for r in results if r.pattern_name == "breakout_candle")
         assert r.category == "continuation"
 
+    def test_outside_bar_detected(self):
+        # Current range fully engulfs prior range; close near high → bullish
+        prior = _c(100, 110, 95, 107, i=0)
+        curr  = _c(101, 118, 92, 115, i=1)  # high=118>110, low=92<95; close_position=0.885
+        results = _engine().detect([prior, curr])
+        names = _names(results)
+        assert "outside_bar" in names
+        r = next(r for r in results if r.pattern_name == "outside_bar")
+        assert r.bias == PatternBias.BULLISH
+        assert r.category == "continuation"
+
+    def test_rejection_candle_detected(self):
+        # body=1(5.9%), lower_wick=15(88% of range=17) >= 50% threshold, bullish close
+        candle = _c(100, 102, 85, 101)  # o=100,c=101 bullish; lw=15; rng=17
+        results = _engine().detect([candle])
+        names = _names(results)
+        assert "rejection_candle" in names
+        r = next(r for r in results if r.pattern_name == "rejection_candle")
+        assert r.bias == PatternBias.BULLISH
+        assert r.category == "reversal"
+
+    def test_exhaustion_candle_detected(self):
+        # 4 normal bars (range~11) then a large bullish bar with big upper wick → bearish exhaustion signal
+        prior = [_c(100 + i, 108 + i, 97 + i, 105 + i, i=i) for i in range(4)]
+        # last bar: range=37 >= avg(11)*1.8=19.8; bullish; upper_wick=15 (40.5% >= 25%)
+        last = _c(100, 135, 98, 120, i=4)
+        results = _engine().detect(prior + [last])
+        names = _names(results)
+        assert "exhaustion_candle" in names
+        r = next(r for r in results if r.pattern_name == "exhaustion_candle")
+        assert r.bias == PatternBias.BEARISH   # bullish exhaustion → bearish signal
+        assert r.category == "reversal"
+
+    def test_failed_breakout_candle_detected(self):
+        # Bars 0,1: lb_high=110; bar 2 (prior) closes above 110; bar 3 (current) reverses below 110
+        b0 = _c(100, 108, 98, 106, i=0)
+        b1 = _c(105, 110, 103, 108, i=1)  # lb_high=110
+        b2 = _c(109, 115, 108, 113, i=2)  # prior_close=113 > lb_high=110 ✓
+        b3 = _c(112, 115, 100, 107, i=3)  # curr_close=107 < lb_high=110 ✓
+        results = _engine().detect([b0, b1, b2, b3])
+        names = _names(results)
+        assert "failed_breakout_candle" in names
+        r = next(r for r in results if r.pattern_name == "failed_breakout_candle")
+        assert r.bias == PatternBias.BEARISH
+        assert r.category == "reversal"
+
 
 # ---------------------------------------------------------------------------
 # Class 8: TestPatternNoFalsePositives
@@ -471,6 +708,29 @@ class TestPatternNoFalsePositives:
         candles = [_c(100 + i * 0.1, 101 + i * 0.1, 99 + i * 0.1, 100.05 + i * 0.1, i=i % 60) for i in range(50)]
         result = engine.detect(candles)
         assert isinstance(result, list)
+
+    def test_hammer_does_not_fire_on_marubozu(self):
+        # Bullish marubozu: no lower wick — hammer lw >= 2x body condition cannot be met
+        engine = _engine()
+        candle = _c(95, 110, 94, 110)  # body=15, lw=0
+        results = engine.detect([candle])
+        assert "hammer" not in _names(results)
+
+    def test_bullish_engulfing_does_not_fire_when_both_bullish(self):
+        # Both candles bullish — requires prior bearish
+        engine = _engine()
+        c1 = _c(100, 110, 99, 108, i=0)
+        c2 = _c(108, 120, 107, 118, i=1)
+        results = engine.detect([c1, c2])
+        assert "bullish_engulfing" not in _names(results)
+
+    def test_morning_star_does_not_fire_on_two_candles(self):
+        # morning_star requires min 3 bars
+        engine = _engine()
+        b1 = _c(110, 112, 95, 97, i=0)
+        b2 = _c(96, 98, 93, 95, i=1)
+        results = engine.detect([b1, b2])
+        assert "morning_star" not in _names(results)
 
 
 # ---------------------------------------------------------------------------
