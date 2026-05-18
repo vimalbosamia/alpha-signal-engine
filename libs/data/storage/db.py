@@ -36,6 +36,7 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
 
 async def init_db() -> None:
     """Create all tables. Call once at startup."""
+    import libs.paper_trading.models  # noqa: F401
     from libs.data.storage.models import Base
 
     async with get_engine().begin() as conn:
