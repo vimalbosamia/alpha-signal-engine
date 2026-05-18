@@ -63,6 +63,9 @@ async def lifespan(application: FastAPI):
 
 app = FastAPI(title="AI Trading Signal Agent Dashboard", docs_url="/docs", lifespan=lifespan)
 
+from apps.dashboard.paper_page import router as paper_router
+app.include_router(paper_router)
+
 
 # ── JSON API endpoints ────────────────────────────────────────────────────────
 
