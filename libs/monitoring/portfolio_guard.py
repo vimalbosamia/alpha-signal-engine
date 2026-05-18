@@ -106,7 +106,7 @@ class PortfolioGuard:
                 return self._evaluate(signal)
         except Exception as exc:
             log.warning("portfolio_guard_error", error=str(exc))
-            return GuardDecision(allowed=True)   # fail-open on internal error
+            return GuardDecision(allowed=False, reason="Guard internal error — fail-closed")
 
     def register(self, signal: SignalOutput) -> None:
         """

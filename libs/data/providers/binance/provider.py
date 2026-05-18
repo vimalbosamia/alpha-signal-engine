@@ -66,6 +66,12 @@ class BinanceDataProvider(BaseDataProvider):
         self._settings = get_settings().binance
         self._http_client = None
 
+    async def close(self) -> None:
+        """Close underlying HTTP client to release connections."""
+        if self._http_client is not None:
+            await self._http_client.aclose()
+            self._http_client = None
+
     @property
     def name(self) -> str:
         return "binance"

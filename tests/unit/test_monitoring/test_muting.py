@@ -4,6 +4,8 @@ from __future__ import annotations
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 
+import libs.monitoring.outcome_tracker as ot_mod
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -15,6 +17,11 @@ def _make_stats(muted_names: list[str], unmuted_names: list[str] | None = None) 
     for name in (unmuted_names or []):
         stats.append({"strategy": name, "muted": False})
     return stats
+
+
+def _reset_muted(names: frozenset[str] | None = None) -> None:
+    """Reset the module-level _MUTED_STRATEGIES frozenset."""
+    ot_mod._MUTED_STRATEGIES = names if names is not None else frozenset()
 
 
 # ---------------------------------------------------------------------------
@@ -42,19 +49,14 @@ async def test_load_muted_from_db_populates_set():
         "libs.monitoring.outcome_tracker.OutcomeRepository",
         return_value=mock_repo,
     ):
-        from libs.monitoring.outcome_tracker import (
-            load_muted_strategies_from_db,
-            is_strategy_muted,
-            _MUTED_STRATEGIES,
-        )
-        _MUTED_STRATEGIES.clear()
+        _reset_muted()
 
-        count = await load_muted_strategies_from_db()
+        count = await ot_mod.load_muted_strategies_from_db()
 
     assert count == 2
-    assert is_strategy_muted("bad_strategy") is True
-    assert is_strategy_muted("awful_strategy") is True
-    assert is_strategy_muted("ok_strategy") is False
+    assert ot_mod.is_strategy_muted("bad_strategy") is True
+    assert ot_mod.is_strategy_muted("awful_strategy") is True
+    assert ot_mod.is_strategy_muted("ok_strategy") is False
 
 
 @pytest.mark.asyncio
@@ -78,19 +80,13 @@ async def test_load_muted_clears_stale_mutes():
         "libs.monitoring.outcome_tracker.OutcomeRepository",
         return_value=mock_repo,
     ):
-        from libs.monitoring.outcome_tracker import (
-            load_muted_strategies_from_db,
-            is_strategy_muted,
-            _MUTED_STRATEGIES,
-        )
         # Pre-populate with a stale entry
-        _MUTED_STRATEGIES.clear()
-        _MUTED_STRATEGIES.add("stale_strategy")
+        _reset_muted(frozenset({"stale_strategy"}))
 
-        await load_muted_strategies_from_db()
+        await ot_mod.load_muted_strategies_from_db()
 
-    assert is_strategy_muted("stale_strategy") is False
-    assert is_strategy_muted("new_bad_strategy") is True
+    assert ot_mod.is_strategy_muted("stale_strategy") is False
+    assert ot_mod.is_strategy_muted("new_bad_strategy") is True
 
 
 @pytest.mark.asyncio
@@ -112,13 +108,9 @@ async def test_load_muted_handles_empty_db():
         "libs.monitoring.outcome_tracker.OutcomeRepository",
         return_value=mock_repo,
     ):
-        from libs.monitoring.outcome_tracker import (
-            load_muted_strategies_from_db,
-            _MUTED_STRATEGIES,
-        )
-        _MUTED_STRATEGIES.clear()
+        _reset_muted()
 
-        count = await load_muted_strategies_from_db()
+        count = await ot_mod.load_muted_strategies_from_db()
 
     assert count == 0
 
@@ -132,9 +124,7 @@ async def test_load_muted_handles_db_error():
         "libs.monitoring.outcome_tracker.get_session_factory",
         return_value=mock_factory,
     ):
-        from libs.monitoring.outcome_tracker import load_muted_strategies_from_db
-
-        count = await load_muted_strategies_from_db()
+        count = await ot_mod.load_muted_strategies_from_db()
 
     assert count == 0
 
@@ -142,8 +132,6 @@ async def test_load_muted_handles_db_error():
 @pytest.mark.asyncio
 async def test_is_strategy_muted_returns_false_for_unknown():
     """Unknown strategy name returns False without any DB call."""
-    from libs.monitoring.outcome_tracker import is_strategy_muted, _MUTED_STRATEGIES
+    _reset_muted()
 
-    _MUTED_STRATEGIES.clear()
-
-    assert is_strategy_muted("completely_unknown_strategy") is False
+    assert ot_mod.is_strategy_muted("completely_unknown_strategy") is False

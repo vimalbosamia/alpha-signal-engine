@@ -20,7 +20,7 @@ Phase 1 additions (institutional upgrade):
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Literal
 from uuid import UUID, uuid4
@@ -309,7 +309,7 @@ class DataQualityReport(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     rows_checked: int = 0
     rows_with_issues: int = 0
-    checked_at: datetime = Field(default_factory=datetime.utcnow)
+    checked_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
     def is_safe(self) -> bool:
@@ -445,7 +445,7 @@ class SignalCandidate(BaseModel):
     regime: MarketRegime = MarketRegime.UNKNOWN
     session: SessionState | None = None
     quality: DataQualityReport | None = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     raw_features: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -650,7 +650,7 @@ class SignalOutput(BaseModel):
     blocked_reasons: list[str] = Field(default_factory=list)
 
     # Metadata
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     agent_mode: str = ""
     data_provider: str = ""
 

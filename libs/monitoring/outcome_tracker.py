@@ -40,8 +40,9 @@ OUTCOME_LOSS = "LOSS"
 OUTCOME_PENDING = "PENDING"
 OUTCOME_EXPIRED = "EXPIRED"
 
-# Muted strategies — populated at runtime by learning loop
-_MUTED_STRATEGIES: set[str] = set()
+# Muted strategies — populated at runtime by learning loop.
+# Uses frozenset for atomic replacement (thread-safe reads without a lock).
+_MUTED_STRATEGIES: frozenset[str] = frozenset()
 
 
 def is_strategy_muted(strategy_name: str) -> bool:
@@ -56,9 +57,9 @@ async def load_muted_strategies_from_db() -> int:
         async with get_session_factory()() as db_session:
             repo = OutcomeRepository(db_session)
             stats = await repo.get_strategy_stats()
-        muted = {s["strategy"] for s in stats if s["muted"]}
-        _MUTED_STRATEGIES.clear()
-        _MUTED_STRATEGIES.update(muted)
+        muted = frozenset(s["strategy"] for s in stats if s["muted"])
+        global _MUTED_STRATEGIES
+        _MUTED_STRATEGIES = muted
         log.info("muted_strategies_loaded", count=len(muted), strategies=list(muted))
         return len(muted)
     except Exception as exc:
@@ -141,7 +142,11 @@ class SignalOutcomeTracker:
         self._queue.append(pending)
 
         # Immediately write PENDING record to DB
-        asyncio.ensure_future(self._save_pending(pending))
+        try:
+            asyncio.create_task(self._save_pending(pending))
+        except RuntimeError:
+            # No running event loop — best-effort fire-and-forget
+            log.debug("no_event_loop_for_pending_save", symbol=pending.symbol)
 
         log.info(
             "outcome_enqueued",
@@ -273,11 +278,11 @@ class SignalOutcomeTracker:
                     await repo.upsert_strategy_performance(
                         pending.strategy_name, won=correct
                     )
-                    # Refresh muted set
+                    # Refresh muted set (atomic replacement — thread-safe)
                     stats = await repo.get_strategy_stats()
-                    muted = {s["strategy"] for s in stats if s["muted"]}
-                    _MUTED_STRATEGIES.clear()
-                    _MUTED_STRATEGIES.update(muted)
+                    muted = frozenset(s["strategy"] for s in stats if s["muted"])
+                    global _MUTED_STRATEGIES
+                    _MUTED_STRATEGIES = muted
                     if muted:
                         log.info("strategies_muted", muted=list(muted))
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
@@ -57,7 +57,7 @@ def make_signal(symbol: str = "AAPL") -> SignalOutput:
         session_status=SessionType.REGULAR,
         data_quality_status=DataQualityStatus.CLEAN,
         confluence=breakdown,
-        generated_at=datetime.utcnow(),
+        generated_at=datetime.now(timezone.utc),
     )
 
 

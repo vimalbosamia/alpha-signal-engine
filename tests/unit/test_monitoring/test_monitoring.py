@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -64,7 +64,7 @@ def make_signal(action: SignalAction = SignalAction.BUY) -> SignalOutput:
         session_status=SessionType.REGULAR,
         data_quality_status=DataQualityStatus.CLEAN,
         confluence=breakdown,
-        generated_at=datetime.utcnow(),
+        generated_at=datetime.now(timezone.utc),
     )
 
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 import orjson
@@ -75,7 +75,7 @@ class AuditRepository:
             event_type=event_type,
             symbol=symbol,
             asset_class=asset_class,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             payload=orjson.dumps(payload).decode(),
         )
         self._session.add(record)
@@ -175,7 +175,7 @@ class OutcomeRepository:
                 losses=0,
                 win_rate=0.0,
                 is_muted=False,
-                last_updated=datetime.utcnow(),
+                last_updated=datetime.now(timezone.utc),
             )
             self._session.add(rec)
 
@@ -188,7 +188,7 @@ class OutcomeRepository:
         total = rec.wins + rec.losses
         rec.win_rate = rec.wins / total if total > 0 else 0.0
         rec.is_muted = total >= 5 and rec.win_rate < 0.40
-        rec.last_updated = datetime.utcnow()
+        rec.last_updated = datetime.now(timezone.utc)
 
         await self._session.commit()
         return rec

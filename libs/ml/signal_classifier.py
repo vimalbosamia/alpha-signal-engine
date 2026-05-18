@@ -16,7 +16,6 @@ Persistence: data/ml_model.pkl (joblib).
 from __future__ import annotations
 
 import os
-import pickle
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -191,10 +190,18 @@ class SignalClassifier:
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _retrain_async(self) -> None:
-        """Load all outcomes from DB and retrain."""
+        """Load all outcomes from DB and retrain.
+
+        Runs in a daemon thread — create a fresh event loop since
+        asyncio.run() fails when a loop is already running.
+        """
         try:
             import asyncio
-            asyncio.run(self._load_and_retrain())
+            loop = asyncio.new_event_loop()
+            try:
+                loop.run_until_complete(self._load_and_retrain())
+            finally:
+                loop.close()
         except Exception as exc:
             log.warning("ml_retrain_failed", error=str(exc))
 
@@ -217,7 +224,11 @@ class SignalClassifier:
         """Quick sync count of resolved outcomes in DB."""
         try:
             import asyncio
-            return asyncio.run(self._count_resolved())
+            loop = asyncio.new_event_loop()
+            try:
+                return loop.run_until_complete(self._count_resolved())
+            finally:
+                loop.close()
         except Exception:
             return 0
 
@@ -232,8 +243,8 @@ class SignalClassifier:
 
     def _save(self) -> None:
         try:
-            with open(MODEL_PATH, "wb") as f:
-                pickle.dump(self._model, f)
+            import joblib
+            joblib.dump(self._model, MODEL_PATH)
             log.debug("ml_model_saved", path=str(MODEL_PATH))
         except Exception as exc:
             log.warning("ml_model_save_failed", error=str(exc))
@@ -242,8 +253,12 @@ class SignalClassifier:
         if not MODEL_PATH.exists():
             return
         try:
-            with open(MODEL_PATH, "rb") as f:
-                self._model = pickle.load(f)
+            import joblib
+            model = joblib.load(MODEL_PATH)
+            # Verify loaded object is actually a classifier
+            if not hasattr(model, "predict_proba"):
+                raise TypeError(f"Loaded object is not a classifier: {type(model)}")
+            self._model = model
             self._stats.trained = True
             log.info("ml_model_loaded", path=str(MODEL_PATH))
         except Exception as exc:

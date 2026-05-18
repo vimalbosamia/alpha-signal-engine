@@ -26,11 +26,6 @@ class AgentMode(str, Enum):
     LIVE = "live"
 
 
-class AssetClass(str, Enum):
-    STOCK = "stock"
-    CRYPTO = "crypto"
-
-
 # ── Provider sub-settings ─────────────────────────────────────────────────────
 
 class AlpacaSettings(BaseSettings):

@@ -121,7 +121,7 @@ class AlpacaDataProvider(BaseDataProvider):
                 feed=self._settings.data_feed,
                 limit=limit,
             )
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             resp = await loop.run_in_executor(None, client.get_stock_bars, req)
             df = resp.df
 
@@ -214,7 +214,7 @@ class AlpacaDataProvider(BaseDataProvider):
                 secret_key=settings.alpaca.secret_key.get_secret_value(),
                 paper=True,
             )
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             asset = await loop.run_in_executor(None, tc.get_asset, symbol)
 
             return SymbolMetadata(
@@ -240,7 +240,7 @@ class AlpacaDataProvider(BaseDataProvider):
         try:
             from alpaca.data.requests import StockLatestTradeRequest
             client = self._get_hist_client()
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             req = StockLatestTradeRequest(symbol_or_symbols=symbol)
             resp = await loop.run_in_executor(None, client.get_stock_latest_trade, req)
             trade = resp.get(symbol)

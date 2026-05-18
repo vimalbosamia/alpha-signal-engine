@@ -24,6 +24,7 @@ Then open: http://localhost:8000
 """
 from __future__ import annotations
 
+import html as html_mod
 import json
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -67,6 +68,7 @@ app = FastAPI(title="AI Trading Signal Agent Dashboard", docs_url="/docs", lifes
 
 @app.get("/api/signals")
 async def get_signals(symbol: str | None = None, limit: int = 100) -> JSONResponse:
+    limit = min(max(limit, 1), 500)
     async with get_session_factory()() as session:
         repo = SignalRepository(session)
         signals = await repo.get_latest_signals(symbol=symbol, limit=limit)
@@ -166,7 +168,7 @@ async def get_prices(symbols: str = "") -> JSONResponse:
             prices[symbol] = None
 
     tasks = []
-    for entry in symbols.split(","):
+    for entry in symbols.split(",")[:50]:  # cap at 50 symbols
         entry = entry.strip()
         if not entry:
             continue
@@ -190,7 +192,8 @@ async def get_accuracy() -> JSONResponse:
             stats = await repo.get_strategy_stats()
         return JSONResponse(content={"strategies": stats})
     except Exception as exc:
-        return JSONResponse(content={"strategies": [], "error": str(exc)})
+        log.warning("accuracy_fetch_failed", error=str(exc))
+        return JSONResponse(content={"strategies": [], "error": "Failed to load accuracy data"})
 
 
 @app.get("/api/ml-stats")
@@ -213,7 +216,8 @@ async def ml_stats() -> JSONResponse:
             "block_threshold": 85,   # 85% win prob threshold
         })
     except Exception as exc:
-        return JSONResponse(content={"trained": False, "error": str(exc)})
+        log.warning("ml_stats_fetch_failed", error=str(exc))
+        return JSONResponse(content={"trained": False, "error": "Failed to load ML stats"})
 
 
 @app.get("/api/portfolio-guard")
@@ -244,7 +248,8 @@ async def portfolio_guard_stats() -> JSONResponse:
             },
         })
     except Exception as exc:
-        return JSONResponse(content={"error": str(exc)})
+        log.warning("guard_stats_fetch_failed", error=str(exc))
+        return JSONResponse(content={"error": "Failed to load guard stats"})
 
 
 @app.get("/api/scan")
@@ -297,30 +302,33 @@ async def dashboard(request: Request) -> HTMLResponse:
     mode_badge = "paper" if settings.agent_mode.value == "paper" else "live"
     mode_label = settings.agent_mode.value.upper()
 
+    def _esc(v: str) -> str:
+        return html_mod.escape(v, quote=True)
+
     crypto_pills = "".join(
-        f'<button class="pill" onclick="setScan(\'{s}\',\'crypto\')">{s}</button>'
+        f'<button class="pill" onclick="setScan(\'{_esc(s)}\',\'crypto\')">{_esc(s)}</button>'
         for s in crypto_symbols
     )
     futures_pills = "".join(
-        f'<button class="pill" style="border-color:var(--yellow);color:var(--yellow)" onclick="setScan(\'{s}\',\'crypto\',\'futures\')">{s} ⚡</button>'
+        f'<button class="pill" style="border-color:var(--yellow);color:var(--yellow)" onclick="setScan(\'{_esc(s)}\',\'crypto\',\'futures\')">{_esc(s)} ⚡</button>'
         for s in futures_symbols
     )
     stock_pills = "".join(
-        f'<button class="pill" onclick="setScan(\'{s}\',\'stock\')">{s} ★</button>'
+        f'<button class="pill" onclick="setScan(\'{_esc(s)}\',\'stock\')">{_esc(s)} ★</button>'
         for s in stock_symbols
     )
     watchlist_html = crypto_pills + futures_pills + stock_pills
 
     crypto_options = "".join(
-        f'<option value="{s}" data-market="spot" {"selected" if i == 0 else ""}>{s.replace("USDT","")}/USDT (Spot)</option>'
+        f'<option value="{_esc(s)}" data-market="spot" {"selected" if i == 0 else ""}>{_esc(s).replace("USDT","")}/USDT (Spot)</option>'
         for i, s in enumerate(crypto_symbols)
     )
     futures_options = "".join(
-        f'<option value="{s}" data-market="futures">{s.replace("USDT","")}/USDT (Futures)</option>'
+        f'<option value="{_esc(s)}" data-market="futures">{_esc(s).replace("USDT","")}/USDT (Futures)</option>'
         for s in futures_symbols
     )
     stock_options = "".join(
-        f'<option value="{s}">{s}</option>'
+        f'<option value="{_esc(s)}">{_esc(s)}</option>'
         for s in stock_symbols
     )
 
@@ -1226,7 +1234,7 @@ setInterval(tick, 1000);                 // countdown + 15s full refresh
 
 # ── Standalone runner ─────────────────────────────────────────────────────────
 
-def run_dashboard(host: str = "0.0.0.0", port: int = 8000) -> None:
+def run_dashboard(host: str = "127.0.0.1", port: int = 8000) -> None:
     settings = get_settings()
     configure_logging(settings.observability.log_level)
     uvicorn.run(app, host=host, port=port, log_level="warning")

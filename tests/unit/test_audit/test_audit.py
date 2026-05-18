@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -32,7 +32,7 @@ async def test_record_writes_jsonl_file(tmp_path):
     event = make_event()
     await audit.record(event)
 
-    date_str = datetime.utcnow().strftime("%Y-%m-%d")
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     jsonl_file = tmp_path / f"audit-{date_str}.jsonl"
     assert jsonl_file.exists()
     content = jsonl_file.read_text(encoding="utf-8")
@@ -59,7 +59,7 @@ async def test_disabled_creates_no_file(tmp_path):
     event = make_event()
     await audit.record(event)
 
-    date_str = datetime.utcnow().strftime("%Y-%m-%d")
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     jsonl_file = tmp_path / f"audit-{date_str}.jsonl"
     assert not jsonl_file.exists()
 
@@ -88,7 +88,7 @@ async def test_corrupted_line_skipped_no_exception(tmp_path):
     await audit.record(make_event(signal_id=sid, event_type="valid_event"))
 
     # Manually corrupt the file by prepending a bad line
-    date_str = datetime.utcnow().strftime("%Y-%m-%d")
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     jsonl_file = tmp_path / f"audit-{date_str}.jsonl"
     good_content = jsonl_file.read_text(encoding="utf-8")
     jsonl_file.write_text("{{CORRUPTED_JSON}}\n" + good_content, encoding="utf-8")
