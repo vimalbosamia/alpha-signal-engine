@@ -14,11 +14,13 @@ from libs.core.models.domain import SignalOutput, Timeframe
 from libs.paper_trading.bot_agent import BotAgent
 
 _ALLOWED_TIMEFRAMES: frozenset[Timeframe] = frozenset({
+    Timeframe.THIRTY_MIN,
     Timeframe.ONE_HOUR,
     Timeframe.FOUR_HOUR,
+    Timeframe.ONE_DAY,
 })
 
-_MIN_RR: float = 2.5
+_MIN_RR: float = 1.5
 
 
 class SwingBot(BotAgent):

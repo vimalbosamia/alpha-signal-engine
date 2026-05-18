@@ -29,8 +29,8 @@ logger = logging.getLogger(__name__)
 
 # ── Baseline constants ─────────────────────────────────────────────────────────
 
-BASE_CONFIDENCE: float = 0.60
-BASE_MIN_RR: float = 1.5
+BASE_CONFIDENCE: float = 0.40
+BASE_MIN_RR: float = 1.0
 
 # Adaptation thresholds
 _MIN_TRADES_BEFORE_ADAPT: int = 10

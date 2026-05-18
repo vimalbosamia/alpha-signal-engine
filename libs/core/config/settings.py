@@ -69,12 +69,12 @@ class CoinbaseSettings(BaseSettings):
 class SignalSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="", env_file=".env", extra="ignore")
 
-    min_confluence_score: float = Field(default=0.65, ge=0.0, le=1.0)
-    min_reward_risk: float = Field(default=2.0, ge=0.5)
-    max_active_signals: int = Field(default=20, ge=1)
-    max_signals_per_symbol: int = Field(default=2, ge=1)
+    min_confluence_score: float = Field(default=0.40, ge=0.0, le=1.0)
+    min_reward_risk: float = Field(default=1.0, ge=0.5)
+    max_active_signals: int = Field(default=100, ge=1)
+    max_signals_per_symbol: int = Field(default=5, ge=1)
     stock_watchlist: str = "AAPL,MSFT,NVDA,TSLA,SPY,QQQ"
-    crypto_watchlist: str = "BTCUSDT,ETHUSDT,SOLUSDT"
+    crypto_watchlist: str = "BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,DOGEUSDT,ADAUSDT,AVAXUSDT,TRXUSDT,LINKUSDT,SUIUSDT,NEARUSDT,PEPEUSDT,LTCUSDT,UNIUSDT,AAVEUSDT,DASHUSDT,ZECUSDT"
     futures_watchlist: str = "BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT"
     enable_futures: bool = False
 

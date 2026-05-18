@@ -16,9 +16,10 @@ from libs.paper_trading.bot_agent import BotAgent
 _ALLOWED_TIMEFRAMES: frozenset[Timeframe] = frozenset({
     Timeframe.ONE_MIN,
     Timeframe.FIVE_MIN,
+    Timeframe.FIFTEEN_MIN,
 })
 
-_MIN_RR: float = 1.5
+_MIN_RR: float = 1.0
 
 
 class ScalperBot(BotAgent):

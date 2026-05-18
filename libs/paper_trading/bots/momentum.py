@@ -20,12 +20,14 @@ _ALLOWED_REGIMES: frozenset[MarketRegime] = frozenset({
 })
 
 _ALLOWED_TIMEFRAMES: frozenset[Timeframe] = frozenset({
+    Timeframe.FIVE_MIN,
     Timeframe.FIFTEEN_MIN,
     Timeframe.THIRTY_MIN,
     Timeframe.ONE_HOUR,
+    Timeframe.FOUR_HOUR,
 })
 
-_HIGH_CONFIDENCE_THRESHOLD: float = 0.70
+_HIGH_CONFIDENCE_THRESHOLD: float = 0.50
 
 
 class MomentumBot(BotAgent):

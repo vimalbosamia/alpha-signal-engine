@@ -35,10 +35,10 @@ log = get_logger(__name__)
 @dataclass(frozen=True)
 class GuardConfig:
     """Exposure limits enforced by PortfolioGuard."""
-    max_concurrent_signals: int = 10    # total open signals (all symbols)
-    max_per_symbol: int = 1             # open signals per symbol
-    max_same_direction: int = 5         # max BUY-only or SELL-only at once
-    max_per_asset_class: int = 6        # open signals per asset class
+    max_concurrent_signals: int = 50     # total open signals (all symbols)
+    max_per_symbol: int = 3             # open signals per symbol
+    max_same_direction: int = 25        # max BUY-only or SELL-only at once
+    max_per_asset_class: int = 30       # open signals per asset class
     max_age_hours: float = 24.0         # auto-expire positions older than this
     max_portfolio_heat_pct: float = 10.0  # halt new signals if total risk >= this %
     max_daily_loss_pct: float = 3.0     # halt if total realized loss >= this % of account in one day
