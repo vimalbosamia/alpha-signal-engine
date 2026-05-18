@@ -11,7 +11,9 @@ from __future__ import annotations
 from libs.core.models.domain import MarketRegime, SignalOutput, Timeframe
 from libs.paper_trading.bot_agent import BotAgent
 
-_STRATEGIES: frozenset[str] = frozenset({"ema_crossover", "resistance_breakout"})
+_STRATEGIES: frozenset[str] = frozenset({
+    "ema_crossover", "resistance_breakout", "macd_crossover", "support_breakdown",
+})
 
 _ALLOWED_REGIMES: frozenset[MarketRegime] = frozenset({
     MarketRegime.TRENDING_UP,
@@ -36,7 +38,9 @@ class MomentumBot(BotAgent):
     NAME = "MomentumBot"
 
     def should_take_signal(self, signal: SignalOutput) -> bool:
-        # Aggressive mode: take trending/breakout signals on any timeframe
-        if signal.market_regime in _ALLOWED_REGIMES:
+        # Take momentum strategies in any regime, or high-confidence signals in trending
+        if signal.strategy_name in _STRATEGIES:
             return True
-        return signal.confidence >= _HIGH_CONFIDENCE_THRESHOLD
+        if signal.market_regime in _ALLOWED_REGIMES and signal.confidence >= _HIGH_CONFIDENCE_THRESHOLD:
+            return True
+        return False

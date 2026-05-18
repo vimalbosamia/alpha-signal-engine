@@ -11,7 +11,7 @@ from __future__ import annotations
 
 MIN_TRADE_SIZE: float = 10.0
 MAX_KELLY_FRACTION: float = 0.25
-MAX_SINGLE_TRADE_PCT: float = 0.05
+MAX_SINGLE_TRADE_PCT: float = 0.15
 REBALANCE_WEIGHTS: list[float] = [0.25, 0.20, 0.18, 0.15, 0.12, 0.10]
 
 
@@ -80,7 +80,7 @@ class CapitalAllocator:
 
         if trade_count < 10:
             # Phase 1 — cold start: fixed 1%
-            raw = bot_capital * 0.01
+            raw = bot_capital * 0.05
             sized = min(raw, max_trade)
         else:
             kelly = self.kelly_fraction(win_rate, avg_win_loss_ratio)

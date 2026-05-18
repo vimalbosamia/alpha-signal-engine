@@ -13,9 +13,8 @@ from libs.core.models.domain import MarketRegime, SignalOutput, Timeframe
 from libs.paper_trading.bot_agent import BotAgent
 
 _STRATEGIES: frozenset[str] = frozenset({
-    "hammer_reversal",
-    "shooting_star_reversal",
-    "support_breakdown",
+    "hammer_reversal", "shooting_star_reversal", "support_breakdown",
+    "rsi_mean_reversion",
 })
 
 _REVERSAL_PATTERNS: frozenset[str] = frozenset({
@@ -50,10 +49,10 @@ class ReversalBot(BotAgent):
     NAME = "ReversalBot"
 
     def should_take_signal(self, signal: SignalOutput) -> bool:
-        # Aggressive mode: take any signal with reversal patterns
+        # Take if strategy is reversal type OR signal has reversal patterns
+        if signal.strategy_name in _STRATEGIES:
+            return True
         has_reversal_pattern = bool(
             _REVERSAL_PATTERNS & set(signal.patterns_detected or [])
         )
-        if has_reversal_pattern:
-            return True
-        return signal.strategy_name in _STRATEGIES
+        return has_reversal_pattern

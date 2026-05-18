@@ -28,8 +28,7 @@ class ScalperBot(BotAgent):
     NAME = "ScalperBot"
 
     def should_take_signal(self, signal: SignalOutput) -> bool:
-        # Aggressive mode: take all signals, any timeframe
-        return True
+        return signal.timeframe in _ALLOWED_TIMEFRAMES and signal.estimated_risk_reward >= _MIN_RR
 
     def _target_exit(self) -> str:
         return "tp1"

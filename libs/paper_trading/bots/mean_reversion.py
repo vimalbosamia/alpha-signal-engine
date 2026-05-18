@@ -12,8 +12,8 @@ from libs.core.models.domain import MarketRegime, SignalOutput, Timeframe
 from libs.paper_trading.bot_agent import BotAgent
 
 _STRATEGIES: frozenset[str] = frozenset({
-    "pullback_continuation",
-    "pullback_bear_continuation",
+    "pullback_continuation", "pullback_bear_continuation",
+    "support_breakdown", "rsi_mean_reversion",
 })
 
 _ALLOWED_REGIMES: frozenset[MarketRegime] = frozenset({
@@ -35,7 +35,4 @@ class MeanReversionBot(BotAgent):
     NAME = "MeanReversionBot"
 
     def should_take_signal(self, signal: SignalOutput) -> bool:
-        # Aggressive mode: take ranging signals or any pullback strategy
-        if signal.market_regime in _ALLOWED_REGIMES:
-            return True
-        return signal.strategy_name in _STRATEGIES
+        return signal.market_regime in _ALLOWED_REGIMES and signal.strategy_name in _STRATEGIES
