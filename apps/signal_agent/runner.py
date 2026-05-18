@@ -158,6 +158,9 @@ class SignalRunner:
                         self._watcher.track(signal)
                         # Outcome tracker: record if signal direction was correct
                         self._outcome_tracker.enqueue(signal)
+                        # Paper trading: dispatch to all bots
+                        if hasattr(self, '_paper_engine'):
+                            self._paper_engine.dispatch_signal(signal)
 
     async def run_loop(self, interval_seconds: int = 300) -> None:
         """Run continuously, sleeping between passes. Starts position watcher."""
@@ -167,6 +170,14 @@ class SignalRunner:
         # Launch position watcher as a concurrent background task
         watcher_task = asyncio.create_task(self._watcher.run_loop())
         outcome_task = asyncio.create_task(self._outcome_tracker.run_loop())
+
+        # Start paper trading engine
+        from libs.paper_trading.engine import PaperTradingEngine
+        from libs.core.events.bus import EventBus
+        self._paper_engine = PaperTradingEngine()
+        await self._paper_engine.start(EventBus)
+        log.info("paper_trading_engine_wired")
+
         try:
             while True:
                 try:
