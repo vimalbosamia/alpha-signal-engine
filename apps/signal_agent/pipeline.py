@@ -252,11 +252,17 @@ class SignalPipeline:
                 # Emit signal
                 output = self._emitter.emit(candidate, breakdown)
 
-                # ── Paper trading: dispatch BEFORE ML/guard filters ──────────
-                # Paper bots make their own decisions; they need unfiltered signals
-                if output.action != SignalAction.NO_TRADE:
+                # ── Paper trading: dispatch with original proposed action ────
+                # Paper bots get the signal with the strategy's proposed action,
+                # bypassing confluence/ML/guard NO_TRADE overrides.
+                paper_signal = output
+                if output.action == SignalAction.NO_TRADE and candidate.proposed_action != SignalAction.NO_TRADE:
+                    paper_signal = output.model_copy(update={
+                        "action": candidate.proposed_action,
+                    })
+                if paper_signal.action != SignalAction.NO_TRADE:
                     await self._bus.publish("paper.signal.raw", {
-                        "signal": output,
+                        "signal": paper_signal,
                     })
 
                 # ── ML filter: block signals predicted as low-win-probability ──

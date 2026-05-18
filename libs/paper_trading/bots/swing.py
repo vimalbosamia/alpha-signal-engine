@@ -29,7 +29,7 @@ class SwingBot(BotAgent):
     NAME = "SwingBot"
 
     def should_take_signal(self, signal: SignalOutput) -> bool:
-        return signal.timeframe in _ALLOWED_TIMEFRAMES and signal.estimated_risk_reward >= _MIN_RR
+        return signal.strategy_name in {"resistance_breakout", "support_breakdown"}
 
     def _target_exit(self) -> str:
         return "tp2"

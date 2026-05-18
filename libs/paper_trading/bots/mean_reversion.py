@@ -12,8 +12,7 @@ from libs.core.models.domain import MarketRegime, SignalOutput, Timeframe
 from libs.paper_trading.bot_agent import BotAgent
 
 _STRATEGIES: frozenset[str] = frozenset({
-    "pullback_continuation", "pullback_bear_continuation",
-    "support_breakdown", "rsi_mean_reversion",
+    "pullback_continuation", "pullback_bear_continuation", "rsi_mean_reversion",
 })
 
 _ALLOWED_REGIMES: frozenset[MarketRegime] = frozenset({

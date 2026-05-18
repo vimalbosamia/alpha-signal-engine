@@ -78,6 +78,7 @@ class PaperTradingEngine:
             result = bot.on_signal(signal)
             if result is not None:
                 results.append(result)
+                break  # First bot to match wins — no duplicates
         return results
 
     # ── Exit checking ──────────────────────────────────────────────────────────

@@ -10,7 +10,8 @@ from libs.paper_trading.bots.reversal import ReversalBot
 from libs.paper_trading.bots.scalper import ScalperBot
 from libs.paper_trading.bots.swing import SwingBot
 
-ALL_BOTS = [MomentumBot, ReversalBot, MeanReversionBot, ScalperBot, SwingBot, AdaptiveBot]
+# Order matters: first match wins. Strategy specialists first, catch-alls last.
+ALL_BOTS = [MomentumBot, ReversalBot, MeanReversionBot, SwingBot, ScalperBot, AdaptiveBot]
 
 __all__ = [
     "MomentumBot",
