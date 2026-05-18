@@ -18,3 +18,4 @@ data/audit/
 *.jsonl
 docs/_build/
 .ipynb_checkpoints/
+.DS_Store
