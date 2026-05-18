@@ -173,9 +173,10 @@ class SignalRunner:
 
         # Start paper trading engine
         from libs.paper_trading.engine import PaperTradingEngine
-        from libs.core.events.bus import EventBus
+        from apps.dashboard.paper_page import set_paper_engine
         self._paper_engine = PaperTradingEngine()
-        await self._paper_engine.start(EventBus)
+        await self._paper_engine.start(self._bus)
+        set_paper_engine(self._paper_engine)
         log.info("paper_trading_engine_wired")
 
         try:

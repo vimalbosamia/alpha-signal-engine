@@ -93,6 +93,15 @@ class PaperTradingEngine:
             all_closed.extend(closed)
         return all_closed
 
+    @staticmethod
+    def _sanitize(d: dict) -> dict:
+        """Replace NaN/Inf floats with 0.0 for JSON safety."""
+        import math
+        return {
+            k: (0.0 if isinstance(v, float) and (math.isnan(v) or math.isinf(v)) else v)
+            for k, v in d.items()
+        }
+
     # ── Summary ────────────────────────────────────────────────────────────────
 
     def get_summary(self, live_prices: dict[str, float]) -> dict:
@@ -113,11 +122,11 @@ class PaperTradingEngine:
             total_balance += effective_balance
             total_open_positions += stats.get("open_positions", 0)
 
-            bot_entries.append({
+            bot_entries.append(self._sanitize({
                 **stats,
                 "unrealized_pnl": unrealized,
                 "effective_balance": effective_balance,
-            })
+            }))
 
         bot_entries.sort(key=lambda b: b["effective_balance"], reverse=True)
 
@@ -132,7 +141,7 @@ class PaperTradingEngine:
             "total_pnl_pct": total_pnl_pct,
             "total_open_positions": total_open_positions,
             "uptime_seconds": uptime,
-            "started_at": self._started_at,
+            "started_at": self._started_at.isoformat(),
             "bots": bot_entries,
         }
 
