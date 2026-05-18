@@ -36,12 +36,7 @@ class MomentumBot(BotAgent):
     NAME = "MomentumBot"
 
     def should_take_signal(self, signal: SignalOutput) -> bool:
-        if signal.timeframe not in _ALLOWED_TIMEFRAMES:
-            return False
-
-        if signal.market_regime not in _ALLOWED_REGIMES:
-            return False
-
-        strategy_match = signal.strategy_name in _STRATEGIES
-        high_confidence = signal.confidence >= _HIGH_CONFIDENCE_THRESHOLD
-        return strategy_match or high_confidence
+        # Aggressive mode: take trending/breakout signals on any timeframe
+        if signal.market_regime in _ALLOWED_REGIMES:
+            return True
+        return signal.confidence >= _HIGH_CONFIDENCE_THRESHOLD

@@ -29,9 +29,7 @@ class SwingBot(BotAgent):
     NAME = "SwingBot"
 
     def should_take_signal(self, signal: SignalOutput) -> bool:
-        if signal.timeframe not in _ALLOWED_TIMEFRAMES:
-            return False
-
+        # Aggressive mode: take signals with decent R:R on any timeframe
         return signal.estimated_risk_reward >= _MIN_RR
 
     def _target_exit(self) -> str:

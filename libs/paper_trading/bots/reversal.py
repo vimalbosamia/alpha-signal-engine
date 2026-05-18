@@ -50,16 +50,10 @@ class ReversalBot(BotAgent):
     NAME = "ReversalBot"
 
     def should_take_signal(self, signal: SignalOutput) -> bool:
-        if signal.timeframe not in _ALLOWED_TIMEFRAMES:
-            return False
-
-        if signal.market_regime in _SKIP_REGIMES:
-            return False
-
-        if signal.strategy_name not in _STRATEGIES:
-            return False
-
+        # Aggressive mode: take any signal with reversal patterns
         has_reversal_pattern = bool(
-            _REVERSAL_PATTERNS & set(signal.patterns_detected)
+            _REVERSAL_PATTERNS & set(signal.patterns_detected or [])
         )
-        return has_reversal_pattern
+        if has_reversal_pattern:
+            return True
+        return signal.strategy_name in _STRATEGIES

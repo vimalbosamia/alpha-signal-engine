@@ -35,10 +35,7 @@ class MeanReversionBot(BotAgent):
     NAME = "MeanReversionBot"
 
     def should_take_signal(self, signal: SignalOutput) -> bool:
-        if signal.timeframe not in _ALLOWED_TIMEFRAMES:
-            return False
-
-        if signal.market_regime not in _ALLOWED_REGIMES:
-            return False
-
+        # Aggressive mode: take ranging signals or any pullback strategy
+        if signal.market_regime in _ALLOWED_REGIMES:
+            return True
         return signal.strategy_name in _STRATEGIES

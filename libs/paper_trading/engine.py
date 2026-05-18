@@ -153,7 +153,7 @@ class PaperTradingEngine:
         for bot in self._bots:
             for trade in bot.portfolio.open_trades:
                 positions.append({
-                    "bot": bot.name,
+                    "bot_name": bot.name,
                     "trade_id": trade.id,
                     "symbol": trade.symbol,
                     "asset_class": trade.asset_class,
@@ -164,7 +164,7 @@ class PaperTradingEngine:
                     "take_profit_1": trade.take_profit_1,
                     "take_profit_2": trade.take_profit_2,
                     "strategy_name": trade.strategy_name,
-                    "opened_at": trade.opened_at,
+                    "opened_at": trade.opened_at.isoformat(),
                 })
         return positions
 

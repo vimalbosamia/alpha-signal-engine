@@ -46,26 +46,26 @@ async def paper_summary() -> JSONResponse:
 @router.get("/api/paper/positions")
 async def paper_positions() -> JSONResponse:
     if _engine is None:
-        return JSONResponse(content=[])
+        return JSONResponse(content={"positions": []})
     try:
         positions = _engine.get_all_open_positions()
-        return JSONResponse(content=positions)
+        return JSONResponse(content={"positions": positions})
     except Exception as exc:
         log.warning("paper_positions_failed", error=str(exc))
-        return JSONResponse(content=[])
+        return JSONResponse(content={"positions": []})
 
 
 @router.get("/api/paper/trades")
 async def paper_trades(limit: int = 100) -> JSONResponse:
     limit = min(max(limit, 1), 500)
     if _engine is None:
-        return JSONResponse(content=[])
+        return JSONResponse(content={"trades": []})
     try:
         trades = _engine.get_closed_trades(limit)
-        return JSONResponse(content=trades)
+        return JSONResponse(content={"trades": trades})
     except Exception as exc:
         log.warning("paper_trades_failed", error=str(exc))
-        return JSONResponse(content=[])
+        return JSONResponse(content={"trades": []})
 
 
 @router.get("/api/paper/equity")
