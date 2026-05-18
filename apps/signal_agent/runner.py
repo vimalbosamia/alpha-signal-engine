@@ -179,6 +179,39 @@ class SignalRunner:
         set_paper_engine(self._paper_engine)
         log.info("paper_trading_engine_wired")
 
+        # Paper trading exit checker — polls prices every 30s
+        async def _paper_exit_loop():
+            while True:
+                try:
+                    # Collect symbols from open positions
+                    positions = self._paper_engine.get_all_open_positions()
+                    if positions:
+                        symbols = {p["symbol"] for p in positions}
+                        prices: dict[str, float] = {}
+                        for sym in symbols:
+                            try:
+                                # Use Binance for crypto (USDT pairs), Alpaca for stocks
+                                if sym.endswith("USDT") and self._binance:
+                                    price = await self._binance.get_latest_price(sym)
+                                elif self._alpaca:
+                                    price = await self._alpaca.get_latest_price(sym)
+                                else:
+                                    price = None
+                                if price:
+                                    prices[sym] = price
+                            except Exception:
+                                pass
+                        if prices:
+                            closed = self._paper_engine.check_all_exits(prices)
+                            if closed:
+                                log.info("paper_exits_resolved", count=len(closed))
+                            self._paper_engine.snapshot_equity(prices)
+                except Exception as exc:
+                    log.debug("paper_exit_loop_error", error=str(exc))
+                await asyncio.sleep(30)
+
+        paper_exit_task = asyncio.create_task(_paper_exit_loop())
+
         try:
             while True:
                 try:
@@ -189,3 +222,4 @@ class SignalRunner:
         finally:
             watcher_task.cancel()
             outcome_task.cancel()
+            paper_exit_task.cancel()

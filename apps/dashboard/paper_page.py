@@ -543,8 +543,8 @@ function renderLeaderboard(bots) {
 async function loadPositions() {
   try {
     const r = await fetch('/api/paper/positions');
-    const positions = await r.json();
-    renderPositions(Array.isArray(positions) ? positions : []);
+    const d = await r.json();
+    renderPositions(d.positions || []);
   } catch (e) {
     console.error('loadPositions error', e);
   }
@@ -566,7 +566,7 @@ function renderPositions(positions) {
       <td style="font-weight:bold">${p.symbol ?? '—'}</td>
       <td style="color:${sideClr};font-weight:bold">${sideLabel}</td>
       <td>${fmt(p.entry_price ?? p.entry, 4)}</td>
-      <td style="color:var(--muted)">${p.size != null ? fmt(p.size, 4) : '—'}</td>
+      <td style="color:var(--muted)">$${fmt(p.position_size_usd, 2)}</td>
       <td style="color:var(--red)">${fmt(p.stop_loss, 4)}</td>
       <td style="color:var(--green)">${fmt(p.take_profit_1, 4)}</td>
       <td style="color:var(--blue)">${tp2}</td>
@@ -580,8 +580,8 @@ function renderPositions(positions) {
 async function loadTrades() {
   try {
     const r = await fetch('/api/paper/trades?limit=500');
-    const trades = await r.json();
-    allTrades = Array.isArray(trades) ? trades : [];
+    const d = await r.json();
+    allTrades = d.trades || [];
 
     // Rebuild bot filter options
     botNames = new Set(allTrades.map(t => t.bot_name ?? t.bot).filter(Boolean));
