@@ -254,8 +254,8 @@ class PaperTradingEngine:
             )
 
     async def start(self, bus: EventBus) -> None:
-        """Subscribe to EventBus.SIGNAL_GENERATED."""
-        bus.subscribe(EventBus.SIGNAL_GENERATED, self.on_signal_event)
+        """Subscribe to raw paper signals (before ML/guard filters)."""
+        bus.subscribe("paper.signal.raw", self.on_signal_event)
         log.info("paper_trading_engine_started")
 
     async def run_exit_check_loop(

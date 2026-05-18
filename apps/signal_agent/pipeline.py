@@ -252,6 +252,13 @@ class SignalPipeline:
                 # Emit signal
                 output = self._emitter.emit(candidate, breakdown)
 
+                # ── Paper trading: dispatch BEFORE ML/guard filters ──────────
+                # Paper bots make their own decisions; they need unfiltered signals
+                if output.action != SignalAction.NO_TRADE:
+                    await self._bus.publish("paper.signal.raw", {
+                        "signal": output,
+                    })
+
                 # ── ML filter: block signals predicted as low-win-probability ──
                 try:
                     from libs.ml.signal_classifier import get_classifier
@@ -318,6 +325,7 @@ class SignalPipeline:
                     "action": output.action.value,
                     "confidence": output.confidence,
                     "strategy": output.strategy_name,
+                    "signal": output,
                 })
 
                 log.info("signal_emitted", signal=output.to_display())
