@@ -486,7 +486,7 @@ async def paper_dashboard() -> HTMLResponse:
     .chart-close { background:none; border:none; color:var(--muted); font-size:1.2rem; cursor:pointer; }
     .chart-close:hover { color:var(--red); }
     .chart-body { display:flex; gap:0; }
-    .chart-candles { flex:1; min-height:400px; }
+    .chart-candles { flex:1; min-height:500px; }
     .chart-indicators { width:280px; padding:12px; border-left:1px solid var(--border); font-size:0.72rem; }
     .ind-row { display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid #1c2128; }
     .ind-label { color:var(--muted); }
@@ -927,12 +927,13 @@ function openChart(symbol, entryPrice, stopLoss, tp1, action, strategy) {
 
   loadChartData(symbol, entryPrice, stopLoss, tp1, action, true);
 
-  // Auto-refresh chart every 5 seconds
+  // Auto-refresh: 1s for 1s timeframe, 5s for others
   if (chartRefreshInterval) clearInterval(chartRefreshInterval);
+  const refreshMs = chartTimeframe === '1s' ? 1000 : 5000;
   chartRefreshInterval = setInterval(() => {
     if (!document.getElementById('chart-overlay').classList.contains('open')) return;
     loadChartData(chartSymbol, chartEntry, chartSL, chartTP1, chartAction, false);
-  }, 5000);
+  }, refreshMs);
 }
 
 function loadChartData(symbol, entryPrice, stopLoss, tp1, action, firstLoad) {
@@ -987,11 +988,12 @@ function renderChart(data, entryPrice, stopLoss, tp1, action) {
 
   chartInstance = LightweightCharts.createChart(container, {
     width: container.clientWidth,
-    height: 400,
+    height: 500,
     layout: { background: { color: '#0d1117' }, textColor: '#c9d1d9' },
     grid: { vertLines: { color: '#1c2128' }, horzLines: { color: '#1c2128' } },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-    timeScale: { timeVisible: true, secondsVisible: false },
+    timeScale: { timeVisible: true, secondsVisible: true, barSpacing: chartTimeframe === '1s' ? 3 : 6, rightOffset: 5 },
+    rightPriceScale: { autoScale: true, borderColor: '#30363d' },
   });
 
   chartCandleSeries = chartInstance.addCandlestickSeries({
@@ -1043,7 +1045,17 @@ function renderChart(data, entryPrice, stopLoss, tp1, action) {
     bbLower.setData([{ time: lastTime, value: data.indicators.bb_lower }]);
   }
 
-  chartInstance.timeScale().fitContent();
+  // Show last 50 candles visible, scrollable left for history
+  chartInstance.timeScale().scrollToPosition(0, false);
+  const visibleBars = chartTimeframe === '1s' ? 80 : 50;
+  if (data.candles.length > visibleBars) {
+    chartInstance.timeScale().setVisibleLogicalRange({
+      from: data.candles.length - visibleBars,
+      to: data.candles.length,
+    });
+  } else {
+    chartInstance.timeScale().fitContent();
+  }
 }
 
 function renderIndicatorPanel(data) {
