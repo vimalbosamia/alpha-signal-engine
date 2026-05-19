@@ -273,6 +273,7 @@ async def paper_chart_data(symbol: str, timeframe: str = "15m") -> JSONResponse:
                 "high": round(float(row["high"]), 6),
                 "low": round(float(row["low"]), 6),
                 "close": round(float(row["close"]), 6),
+                "volume": round(float(row["volume"]), 2) if "volume" in row else 0,
             })
 
         # Get position info for this symbol
@@ -992,10 +993,11 @@ function renderChart(data, entryPrice, stopLoss, tp1, action) {
     layout: { background: { color: '#0d1117' }, textColor: '#c9d1d9' },
     grid: { vertLines: { color: '#1c2128' }, horzLines: { color: '#1c2128' } },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-    timeScale: { timeVisible: true, secondsVisible: true, barSpacing: chartTimeframe === '1s' ? 3 : 6, rightOffset: 5 },
+    timeScale: { timeVisible: true, secondsVisible: true, barSpacing: chartTimeframe === '1s' ? 5 : 8, rightOffset: 5 },
     rightPriceScale: { autoScale: true, borderColor: '#30363d' },
   });
 
+  // Candlesticks — wider bars
   chartCandleSeries = chartInstance.addCandlestickSeries({
     upColor: '#3fb950', downColor: '#f85149',
     borderUpColor: '#3fb950', borderDownColor: '#f85149',
@@ -1003,51 +1005,77 @@ function renderChart(data, entryPrice, stopLoss, tp1, action) {
   });
   chartCandleSeries.setData(data.candles);
 
-  // Entry line
+  // Volume bars at bottom
+  const volumeSeries = chartInstance.addHistogramSeries({
+    color: '#26a69a',
+    priceFormat: { type: 'volume' },
+    priceScaleId: 'volume',
+  });
+  chartInstance.priceScale('volume').applyOptions({
+    scaleMargins: { top: 0.85, bottom: 0 },
+  });
+  if (data.candles.length > 0 && data.candles[0].volume !== undefined) {
+    volumeSeries.setData(data.candles.map(c => ({
+      time: c.time,
+      value: c.volume || 0,
+      color: c.close >= c.open ? 'rgba(63,185,80,0.3)' : 'rgba(248,81,73,0.3)',
+    })));
+  }
+
+  // ── Price lines: Entry, SL, TP1 ──
   if (entryPrice) {
     chartCandleSeries.createPriceLine({
-      price: entryPrice, color: '#58a6ff', lineWidth: 1,
+      price: entryPrice, color: '#58a6ff', lineWidth: 2,
       lineStyle: LightweightCharts.LineStyle.Dashed,
-      axisLabelVisible: true, title: 'Entry',
+      axisLabelVisible: true, title: '► Entry',
     });
   }
-  // Stop loss line
-  if (stopLoss) {
+  if (stopLoss && stopLoss > 0) {
     chartCandleSeries.createPriceLine({
-      price: stopLoss, color: '#f85149', lineWidth: 1,
+      price: stopLoss, color: '#f85149', lineWidth: 2,
       lineStyle: LightweightCharts.LineStyle.Dashed,
-      axisLabelVisible: true, title: 'SL',
+      axisLabelVisible: true, title: '✕ SL',
     });
   }
-  // TP1 line
-  if (tp1) {
+  if (tp1 && tp1 > 0) {
     chartCandleSeries.createPriceLine({
-      price: tp1, color: '#3fb950', lineWidth: 1,
+      price: tp1, color: '#3fb950', lineWidth: 2,
       lineStyle: LightweightCharts.LineStyle.Dashed,
-      axisLabelVisible: true, title: 'TP1',
+      axisLabelVisible: true, title: '✓ TP1',
     });
   }
 
-  // EMA lines
-  if (data.indicators.ema_9) {
-    const ema9Series = chartInstance.addLineSeries({ color: '#d29922', lineWidth: 1, title: 'EMA9' });
-    // Single point at last candle (full EMA line would need per-bar data)
-    const lastTime = data.candles[data.candles.length - 1].time;
-    ema9Series.setData([{ time: lastTime, value: data.indicators.ema_9 }]);
+  // ── EMA overlay lines (9, 20, 50) ──
+  const ind = data.indicators;
+  if (ind.ema_9 && ind.ema_20) {
+    // Draw as horizontal reference lines across visible area
+    const ema9Line = chartInstance.addLineSeries({ color: '#d29922', lineWidth: 1, title: 'EMA9', lastValueVisible: true, priceLineVisible: false });
+    const ema20Line = chartInstance.addLineSeries({ color: '#58a6ff', lineWidth: 1, title: 'EMA20', lastValueVisible: true, priceLineVisible: false });
+    const lastT = data.candles[data.candles.length - 1].time;
+    const firstT = data.candles[0].time;
+    ema9Line.setData([{time: firstT, value: ind.ema_9}, {time: lastT, value: ind.ema_9}]);
+    ema20Line.setData([{time: firstT, value: ind.ema_20}, {time: lastT, value: ind.ema_20}]);
+  }
+  if (ind.ema_50) {
+    const ema50Line = chartInstance.addLineSeries({ color: '#f0883e', lineWidth: 1, title: 'EMA50', lastValueVisible: true, priceLineVisible: false });
+    const lastT = data.candles[data.candles.length - 1].time;
+    const firstT = data.candles[0].time;
+    ema50Line.setData([{time: firstT, value: ind.ema_50}, {time: lastT, value: ind.ema_50}]);
   }
 
-  // Bollinger bands
-  if (data.indicators.bb_upper && data.indicators.bb_lower) {
-    const lastTime = data.candles[data.candles.length - 1].time;
-    const bbUpper = chartInstance.addLineSeries({ color: 'rgba(88,166,255,0.3)', lineWidth: 1 });
-    bbUpper.setData([{ time: lastTime, value: data.indicators.bb_upper }]);
-    const bbLower = chartInstance.addLineSeries({ color: 'rgba(88,166,255,0.3)', lineWidth: 1 });
-    bbLower.setData([{ time: lastTime, value: data.indicators.bb_lower }]);
+  // ── Bollinger Bands ──
+  if (ind.bb_upper && ind.bb_lower) {
+    const lastT = data.candles[data.candles.length - 1].time;
+    const firstT = data.candles[0].time;
+    const bbUp = chartInstance.addLineSeries({ color: 'rgba(88,166,255,0.4)', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, lastValueVisible: true, priceLineVisible: false, title: 'BB↑' });
+    const bbLo = chartInstance.addLineSeries({ color: 'rgba(88,166,255,0.4)', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, lastValueVisible: true, priceLineVisible: false, title: 'BB↓' });
+    bbUp.setData([{time: firstT, value: ind.bb_upper}, {time: lastT, value: ind.bb_upper}]);
+    bbLo.setData([{time: firstT, value: ind.bb_lower}, {time: lastT, value: ind.bb_lower}]);
   }
 
-  // Show last 50 candles visible, scrollable left for history
+  // ── Zoom: show recent candles, scroll left for history ──
   chartInstance.timeScale().scrollToPosition(0, false);
-  const visibleBars = chartTimeframe === '1s' ? 80 : 50;
+  const visibleBars = chartTimeframe === '1s' ? 120 : 60;
   if (data.candles.length > visibleBars) {
     chartInstance.timeScale().setVisibleLogicalRange({
       from: data.candles.length - visibleBars,
