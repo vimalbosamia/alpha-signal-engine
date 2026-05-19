@@ -128,6 +128,11 @@ class BotAgent(ABC):
         if not self.should_take_signal(signal):
             return None
 
+        # Skip if already holding a position on this symbol
+        open_symbols = {t.symbol for t in self._portfolio.open_trades}
+        if signal.symbol in open_symbols:
+            return None
+
         # Check shared loss memory — avoid patterns that failed for ANY bot
         memory = get_shared_memory()
         regime_str = signal.market_regime.value if hasattr(signal.market_regime, "value") else str(signal.market_regime)
