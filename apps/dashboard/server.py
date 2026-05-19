@@ -263,10 +263,8 @@ async def manual_scan(
 ) -> JSONResponse:
     from libs.data.providers.binance.provider import BinanceDataProvider
     from libs.data.providers.alpaca.provider import AlpacaDataProvider
-    from libs.strategies.reversal.hammer_reversal import HammerReversalStrategy
-    from libs.strategies.breakout.resistance_breakout import ResistanceBreakoutStrategy
-    from libs.strategies.continuation.pullback import PullbackContinuationStrategy
     from apps.signal_agent.pipeline import SignalPipeline
+    from apps.signal_agent.runner import DEFAULT_STRATEGIES
 
     ac = AssetClass(asset_class)
     tf = Timeframe(timeframe)
@@ -274,11 +272,7 @@ async def manual_scan(
 
     pipeline = SignalPipeline(
         provider=provider,
-        strategies=[
-            HammerReversalStrategy(),
-            ResistanceBreakoutStrategy(),
-            PullbackContinuationStrategy(),
-        ],
+        strategies=DEFAULT_STRATEGIES,
     )
     outputs = await pipeline.run_once(symbol, ac, tf)
 
