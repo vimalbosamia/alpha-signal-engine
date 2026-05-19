@@ -16,6 +16,7 @@ from abc import ABC, abstractmethod
 from libs.core.models.domain import SignalAction, SignalOutput
 from libs.paper_trading.allocator import CapitalAllocator
 from libs.paper_trading.portfolio import PaperPortfolio
+from libs.paper_trading.shared_memory import get_shared_memory
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -127,6 +128,18 @@ class BotAgent(ABC):
         if not self.should_take_signal(signal):
             return None
 
+        # Check shared loss memory — avoid patterns that failed for ANY bot
+        memory = get_shared_memory()
+        regime_str = signal.market_regime.value if hasattr(signal.market_regime, "value") else str(signal.market_regime)
+        avoid, reason = memory.should_avoid(
+            symbol=signal.symbol,
+            action=signal.action.value,
+            strategy=signal.strategy_name,
+            regime=regime_str,
+        )
+        if avoid:
+            return None
+
         metrics = self._portfolio.get_metrics()
         trade_count = metrics["trade_count"]
         win_rate = metrics["win_rate"]
@@ -221,6 +234,28 @@ class BotAgent(ABC):
             )
             self._update_running_stats(result)
             closed.append(result)
+
+            # Report to shared memory so ALL bots learn
+            memory = get_shared_memory()
+            if result.get("realized_pnl", 0) < 0:
+                memory.record_loss(
+                    bot_name=self.NAME,
+                    symbol=trade.symbol,
+                    action=trade.action,
+                    strategy=trade.strategy_name,
+                    regime=result.get("regime", "unknown"),
+                    patterns=result.get("patterns", []),
+                    risk_reward=0.0,
+                    loss_amount=abs(result.get("realized_pnl", 0)),
+                )
+            else:
+                memory.record_win(
+                    bot_name=self.NAME,
+                    symbol=trade.symbol,
+                    action=trade.action,
+                    strategy=trade.strategy_name,
+                    regime=result.get("regime", "unknown"),
+                )
 
         return closed
 
