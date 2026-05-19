@@ -183,14 +183,12 @@ class SignalRunner:
         async def _paper_exit_loop():
             while True:
                 try:
-                    # Collect symbols from open positions
                     positions = self._paper_engine.get_all_open_positions()
                     if positions:
                         symbols = {p["symbol"] for p in positions}
                         prices: dict[str, float] = {}
                         for sym in symbols:
                             try:
-                                # Use Binance for crypto (USDT pairs), Alpaca for stocks
                                 if sym.endswith("USDT") and self._binance:
                                     price = await self._binance.get_latest_price(sym)
                                 elif self._alpaca:
@@ -199,16 +197,19 @@ class SignalRunner:
                                     price = None
                                 if price:
                                     prices[sym] = price
-                            except Exception:
-                                pass
+                            except Exception as price_exc:
+                                log.debug("paper_price_fetch_error", symbol=sym, error=str(price_exc))
                         if prices:
                             closed = self._paper_engine.check_all_exits(prices)
                             if closed:
-                                log.info("paper_exits_resolved", count=len(closed))
+                                log.info("paper_exits_resolved", count=len(closed),
+                                         trades=[c.get("symbol", "?") for c in closed])
                             self._paper_engine.snapshot_equity(prices)
+                        log.debug("paper_exit_tick", positions=len(positions),
+                                  prices_fetched=len(prices))
                 except Exception as exc:
-                    log.debug("paper_exit_loop_error", error=str(exc))
-                await asyncio.sleep(30)
+                    log.warning("paper_exit_loop_error", error=str(exc))
+                await asyncio.sleep(10)  # Check every 10s for fast exits
 
         paper_exit_task = asyncio.create_task(_paper_exit_loop())
 

@@ -206,14 +206,14 @@ class BotAgent(ABC):
                     hit_sl = True
                 elif take_profit is not None and price >= take_profit:
                     hit_tp = True
-                elif unrealized_pct >= 1.5:  # Early profit: 1.5%+ gain → close
+                elif unrealized_pct >= 0.3:  # Early profit: 1.5%+ gain → close
                     hit_early_profit = True
             else:  # SELL
                 if trade.stop_loss is not None and price >= trade.stop_loss:
                     hit_sl = True
                 elif take_profit is not None and price <= take_profit:
                     hit_tp = True
-                elif unrealized_pct >= 1.5:  # Early profit: 1.5%+ gain → close
+                elif unrealized_pct >= 0.3:  # Early profit: 1.5%+ gain → close
                     hit_early_profit = True
 
             if hit_sl:
