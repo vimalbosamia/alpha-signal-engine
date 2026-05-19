@@ -180,6 +180,117 @@ async def paper_reset() -> JSONResponse:
         return JSONResponse(content={"error": str(exc)}, status_code=500)
 
 
+@router.get("/api/paper/chart/{symbol}")
+async def paper_chart_data(symbol: str, timeframe: str = "15m") -> JSONResponse:
+    """Return OHLCV candles + indicators for charting."""
+    from datetime import datetime, timedelta, timezone
+    from libs.core.models.domain import Timeframe
+
+    tf_map = {"1m": Timeframe.ONE_MIN, "5m": Timeframe.FIVE_MIN, "15m": Timeframe.FIFTEEN_MIN,
+              "30m": Timeframe.THIRTY_MIN, "1h": Timeframe.ONE_HOUR, "4h": Timeframe.FOUR_HOUR}
+    tf = tf_map.get(timeframe, Timeframe.FIFTEEN_MIN)
+
+    try:
+        now = datetime.now(timezone.utc)
+        start = now - timedelta(days=3)
+
+        if symbol.endswith("USDT"):
+            from libs.data.providers.binance.provider import BinanceDataProvider
+            provider = BinanceDataProvider()
+        else:
+            from libs.data.providers.alpaca.provider import AlpacaDataProvider
+            provider = AlpacaDataProvider()
+
+        from libs.data.candles.builder import CandleBuilder
+        df = await provider.get_candles(symbol, tf, start, now)
+        df = CandleBuilder().enrich(df)
+
+        # Compute indicators
+        from libs.analysis.indicators.engine import IndicatorsEngine
+        from libs.analysis.indicators.bias import IndicatorBiasAnalyzer
+        from libs.analysis.structure.market_structure import MarketStructureAnalyzer
+        from libs.analysis.regime.engine import RegimeEngine
+
+        indicators = IndicatorsEngine().compute(df)
+        regime = RegimeEngine().analyze(df)
+        structure = MarketStructureAnalyzer().analyze(df)
+
+        last_close = float(df["close"].iloc[-1])
+        rel_vol = float(df["relative_volume"].iloc[-1]) if "relative_volume" in df else 1.0
+        is_bull = bool(df["is_bullish"].iloc[-1]) if "is_bullish" in df else True
+
+        bias_report = IndicatorBiasAnalyzer().analyze_all(
+            rsi=indicators.rsi or 50, rsi_prev=indicators.rsi_prev or 50,
+            macd_line=indicators.macd_line or 0, macd_signal=indicators.macd_signal or 0,
+            histogram=indicators.macd_histogram or 0, histogram_prev=indicators.macd_histogram_prev or 0,
+            close=last_close, bb_upper=indicators.bb_upper or last_close + 1,
+            bb_lower=indicators.bb_lower or last_close - 1, bb_pct_b=indicators.bb_pct_b or 0.5,
+            ema_9=indicators.ema_9 or last_close, ema_20=indicators.ema_20 or last_close,
+            ema_50=indicators.ema_50 or last_close,
+            adx=indicators.adx or 0,
+            relative_volume=rel_vol, is_bullish_candle=is_bull,
+        )
+
+        # Build candle array for Lightweight Charts
+        candles = []
+        for idx, row in df.iterrows():
+            ts = int(idx.timestamp()) if hasattr(idx, 'timestamp') else 0
+            candles.append({
+                "time": ts,
+                "open": round(float(row["open"]), 6),
+                "high": round(float(row["high"]), 6),
+                "low": round(float(row["low"]), 6),
+                "close": round(float(row["close"]), 6),
+            })
+
+        # Get position info for this symbol
+        positions = []
+        if _engine:
+            for p in _engine.get_all_open_positions():
+                if p["symbol"] == symbol:
+                    positions.append(p)
+
+        return JSONResponse(content={
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "candles": candles[-100:],  # last 100 bars
+            "indicators": {
+                "rsi": round(indicators.rsi, 1) if indicators.rsi else None,
+                "macd_line": round(indicators.macd_line, 6) if indicators.macd_line else None,
+                "macd_signal": round(indicators.macd_signal, 6) if indicators.macd_signal else None,
+                "macd_histogram": round(indicators.macd_histogram, 6) if indicators.macd_histogram else None,
+                "ema_9": round(indicators.ema_9, 6) if indicators.ema_9 else None,
+                "ema_20": round(indicators.ema_20, 6) if indicators.ema_20 else None,
+                "ema_50": round(indicators.ema_50, 6) if indicators.ema_50 else None,
+                "bb_upper": round(indicators.bb_upper, 6) if indicators.bb_upper else None,
+                "bb_lower": round(indicators.bb_lower, 6) if indicators.bb_lower else None,
+                "adx": round(indicators.adx, 1) if indicators.adx else None,
+                "atr": round(indicators.atr, 6) if indicators.atr else None,
+                "volume_relative": round(rel_vol, 2),
+            },
+            "bias": {
+                "net": bias_report.net_bias,
+                "bullish": round(bias_report.bullish_score, 3),
+                "bearish": round(bias_report.bearish_score, 3),
+            },
+            "structure": {
+                "trend": structure.trend_bias,
+                "strength": round(structure.strength, 3),
+                "last_swing_high": structure.last_swing_high,
+                "last_swing_low": structure.last_swing_low,
+                "events": [{"kind": e.kind, "direction": e.direction, "price": e.price} for e in structure.events[-5:]],
+            },
+            "regime": {
+                "name": regime.regime.value if hasattr(regime.regime, 'value') else str(regime.regime),
+                "vol_score": round(regime.vol_score, 3) if hasattr(regime, 'vol_score') else 0,
+            },
+            "positions": positions,
+        })
+    except Exception as exc:
+        log.warning("chart_data_failed", symbol=symbol, error=str(exc))
+        return JSONResponse(content={"error": str(exc)}, status_code=500)
+
+
 # ── HTML Dashboard ────────────────────────────────────────────────────────────
 
 @router.get("/paper", response_class=HTMLResponse)
@@ -326,6 +437,28 @@ async def paper_dashboard() -> HTMLResponse:
     .phase-badge.stopped { background: rgba(248,81,73,0.15); color: var(--red); }
 
     #last-refresh { color: var(--muted); font-size: 0.65rem; }
+
+    /* Chart Modal */
+    .chart-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:1000; }
+    .chart-overlay.open { display:flex; align-items:center; justify-content:center; }
+    .chart-modal { background:var(--surface); border:1px solid var(--border); border-radius:8px; width:90%; max-width:1100px; max-height:90vh; overflow:auto; }
+    .chart-header { display:flex; align-items:center; justify-content:space-between; padding:10px 16px; border-bottom:1px solid var(--border); }
+    .chart-header h3 { font-size:0.9rem; color:var(--bright); }
+    .chart-close { background:none; border:none; color:var(--muted); font-size:1.2rem; cursor:pointer; }
+    .chart-close:hover { color:var(--red); }
+    .chart-body { display:flex; gap:0; }
+    .chart-candles { flex:1; min-height:400px; }
+    .chart-indicators { width:280px; padding:12px; border-left:1px solid var(--border); font-size:0.72rem; }
+    .ind-row { display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid #1c2128; }
+    .ind-label { color:var(--muted); }
+    .ind-val { font-weight:bold; }
+    .ind-section { margin-top:10px; padding-top:6px; border-top:1px solid var(--border); }
+    .ind-section h4 { font-size:0.68rem; color:var(--blue); text-transform:uppercase; letter-spacing:1px; margin-bottom:6px; }
+    .bias-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:0.68rem; font-weight:bold; }
+    .bias-badge.bullish { background:rgba(63,185,80,0.2); color:var(--green); }
+    .bias-badge.bearish { background:rgba(248,81,73,0.2); color:var(--red); }
+    .bias-badge.neutral { background:rgba(139,148,158,0.2); color:var(--muted); }
+    .struct-event { font-size:0.65rem; padding:2px 0; }
   </style>
 </head>
 <body>
@@ -621,9 +754,9 @@ function renderPositions(positions) {
     const pnlClr = pnl >= 0 ? 'var(--green)' : 'var(--red)';
     const pnlSign = pnl >= 0 ? '+' : '';
     const livePrice = p.live_price ? fmt(p.live_price, 4) : '<span style="color:var(--muted)">—</span>';
-    return `<tr>
+    return `<tr style="cursor:pointer" onclick="openChart('${p.symbol}',${p.entry_price},${p.stop_loss||0},${p.take_profit_1||0},'${p.action}','${p.strategy_name||""}')" title="Click to view chart">
       <td style="color:var(--blue)">${p.bot_name ?? '—'}</td>
-      <td style="font-weight:bold">${p.symbol ?? '—'}</td>
+      <td style="font-weight:bold">${p.symbol ?? '—'} 📊</td>
       <td style="color:${sideClr};font-weight:bold">${sideLabel}</td>
       <td>${fmt(p.entry_price, 4)}</td>
       <td style="font-weight:bold">${livePrice}</td>
@@ -730,10 +863,173 @@ async function refreshAll() {
   await Promise.all([loadSummary(), loadPositions(), loadTrades()]);
 }
 
+// ── Chart Modal ──────────────────────────────────────────────────────────────
+let chartInstance = null;
+
+function openChart(symbol, entryPrice, stopLoss, tp1, action, strategy) {
+  const overlay = document.getElementById('chart-overlay');
+  overlay.classList.add('open');
+  document.getElementById('chart-title').textContent = symbol + ' — ' + action + ' via ' + strategy;
+  document.getElementById('chart-container').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading chart...</div>';
+  document.getElementById('chart-indicators').innerHTML = '<div style="color:var(--muted)">Loading...</div>';
+
+  fetch('/api/paper/chart/' + symbol + '?timeframe=15m')
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        document.getElementById('chart-container').innerHTML = '<div style="color:var(--red);padding:20px">' + data.error + '</div>';
+        return;
+      }
+      renderChart(data, entryPrice, stopLoss, tp1, action);
+      renderIndicatorPanel(data);
+    })
+    .catch(e => {
+      document.getElementById('chart-container').innerHTML = '<div style="color:var(--red);padding:20px">Failed: ' + e.message + '</div>';
+    });
+}
+
+function closeChart() {
+  document.getElementById('chart-overlay').classList.remove('open');
+  if (chartInstance) { chartInstance.remove(); chartInstance = null; }
+}
+
+function renderChart(data, entryPrice, stopLoss, tp1, action) {
+  const container = document.getElementById('chart-container');
+  container.innerHTML = '';
+
+  chartInstance = LightweightCharts.createChart(container, {
+    width: container.clientWidth,
+    height: 400,
+    layout: { background: { color: '#0d1117' }, textColor: '#c9d1d9' },
+    grid: { vertLines: { color: '#1c2128' }, horzLines: { color: '#1c2128' } },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    timeScale: { timeVisible: true, secondsVisible: false },
+  });
+
+  const candleSeries = chartInstance.addCandlestickSeries({
+    upColor: '#3fb950', downColor: '#f85149',
+    borderUpColor: '#3fb950', borderDownColor: '#f85149',
+    wickUpColor: '#3fb950', wickDownColor: '#f85149',
+  });
+  candleSeries.setData(data.candles);
+
+  // Entry line
+  if (entryPrice) {
+    candleSeries.createPriceLine({
+      price: entryPrice, color: '#58a6ff', lineWidth: 1,
+      lineStyle: LightweightCharts.LineStyle.Dashed,
+      axisLabelVisible: true, title: 'Entry',
+    });
+  }
+  // Stop loss line
+  if (stopLoss) {
+    candleSeries.createPriceLine({
+      price: stopLoss, color: '#f85149', lineWidth: 1,
+      lineStyle: LightweightCharts.LineStyle.Dashed,
+      axisLabelVisible: true, title: 'SL',
+    });
+  }
+  // TP1 line
+  if (tp1) {
+    candleSeries.createPriceLine({
+      price: tp1, color: '#3fb950', lineWidth: 1,
+      lineStyle: LightweightCharts.LineStyle.Dashed,
+      axisLabelVisible: true, title: 'TP1',
+    });
+  }
+
+  // EMA lines
+  if (data.indicators.ema_9) {
+    const ema9Series = chartInstance.addLineSeries({ color: '#d29922', lineWidth: 1, title: 'EMA9' });
+    // Single point at last candle (full EMA line would need per-bar data)
+    const lastTime = data.candles[data.candles.length - 1].time;
+    ema9Series.setData([{ time: lastTime, value: data.indicators.ema_9 }]);
+  }
+
+  // Bollinger bands
+  if (data.indicators.bb_upper && data.indicators.bb_lower) {
+    const lastTime = data.candles[data.candles.length - 1].time;
+    const bbUpper = chartInstance.addLineSeries({ color: 'rgba(88,166,255,0.3)', lineWidth: 1 });
+    bbUpper.setData([{ time: lastTime, value: data.indicators.bb_upper }]);
+    const bbLower = chartInstance.addLineSeries({ color: 'rgba(88,166,255,0.3)', lineWidth: 1 });
+    bbLower.setData([{ time: lastTime, value: data.indicators.bb_lower }]);
+  }
+
+  chartInstance.timeScale().fitContent();
+}
+
+function renderIndicatorPanel(data) {
+  const ind = data.indicators;
+  const bias = data.bias;
+  const struct = data.structure;
+  const regime = data.regime;
+
+  const biasClass = bias.net === 'bullish' ? 'bullish' : bias.net === 'bearish' ? 'bearish' : 'neutral';
+  const rsiColor = (ind.rsi || 50) <= 30 ? 'var(--green)' : (ind.rsi || 50) >= 70 ? 'var(--red)' : 'var(--text)';
+  const macdColor = (ind.macd_histogram || 0) > 0 ? 'var(--green)' : 'var(--red)';
+
+  document.getElementById('chart-indicators').innerHTML = `
+    <div class="ind-section">
+      <h4>Direction Bias</h4>
+      <div style="text-align:center;margin-bottom:8px">
+        <span class="bias-badge ${biasClass}">${bias.net.toUpperCase()}</span>
+      </div>
+      <div class="ind-row"><span class="ind-label">Bullish</span><span class="ind-val green">${(bias.bullish*100).toFixed(0)}%</span></div>
+      <div class="ind-row"><span class="ind-label">Bearish</span><span class="ind-val red">${(bias.bearish*100).toFixed(0)}%</span></div>
+    </div>
+
+    <div class="ind-section">
+      <h4>Indicators</h4>
+      <div class="ind-row"><span class="ind-label">RSI</span><span class="ind-val" style="color:${rsiColor}">${ind.rsi ?? '—'}</span></div>
+      <div class="ind-row"><span class="ind-label">MACD</span><span class="ind-val" style="color:${macdColor}">${ind.macd_histogram != null ? ind.macd_histogram.toFixed(4) : '—'}</span></div>
+      <div class="ind-row"><span class="ind-label">EMA 9</span><span class="ind-val">${ind.ema_9 ? ind.ema_9.toFixed(2) : '—'}</span></div>
+      <div class="ind-row"><span class="ind-label">EMA 20</span><span class="ind-val">${ind.ema_20 ? ind.ema_20.toFixed(2) : '—'}</span></div>
+      <div class="ind-row"><span class="ind-label">EMA 50</span><span class="ind-val">${ind.ema_50 ? ind.ema_50.toFixed(2) : '—'}</span></div>
+      <div class="ind-row"><span class="ind-label">ADX</span><span class="ind-val">${ind.adx ?? '—'}</span></div>
+      <div class="ind-row"><span class="ind-label">ATR</span><span class="ind-val">${ind.atr ? ind.atr.toFixed(4) : '—'}</span></div>
+      <div class="ind-row"><span class="ind-label">BB Upper</span><span class="ind-val">${ind.bb_upper ? ind.bb_upper.toFixed(2) : '—'}</span></div>
+      <div class="ind-row"><span class="ind-label">BB Lower</span><span class="ind-val">${ind.bb_lower ? ind.bb_lower.toFixed(2) : '—'}</span></div>
+      <div class="ind-row"><span class="ind-label">Volume</span><span class="ind-val">${ind.volume_relative}x avg</span></div>
+    </div>
+
+    <div class="ind-section">
+      <h4>Market Structure</h4>
+      <div class="ind-row"><span class="ind-label">Trend</span><span class="ind-val" style="color:${struct.trend==='bullish'?'var(--green)':struct.trend==='bearish'?'var(--red)':'var(--muted)'}">${struct.trend.toUpperCase()}</span></div>
+      <div class="ind-row"><span class="ind-label">Strength</span><span class="ind-val">${(struct.strength*100).toFixed(0)}%</span></div>
+      <div class="ind-row"><span class="ind-label">Swing High</span><span class="ind-val">${struct.last_swing_high ? struct.last_swing_high.toFixed(2) : '—'}</span></div>
+      <div class="ind-row"><span class="ind-label">Swing Low</span><span class="ind-val">${struct.last_swing_low ? struct.last_swing_low.toFixed(2) : '—'}</span></div>
+      ${(struct.events || []).map(e => '<div class="struct-event">' + e.kind + ' ' + e.direction + ' @ ' + e.price.toFixed(2) + '</div>').join('')}
+    </div>
+
+    <div class="ind-section">
+      <h4>Regime</h4>
+      <div class="ind-row"><span class="ind-label">Type</span><span class="ind-val">${regime.name}</span></div>
+      <div class="ind-row"><span class="ind-label">Vol Score</span><span class="ind-val">${(regime.vol_score*100).toFixed(0)}%</span></div>
+    </div>
+  `;
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 refreshAll();
 setInterval(refreshAll, 5000);
 </script>
+
+<!-- Chart Modal Overlay -->
+<div class="chart-overlay" id="chart-overlay" onclick="if(event.target===this)closeChart()">
+  <div class="chart-modal">
+    <div class="chart-header">
+      <h3 id="chart-title">Loading...</h3>
+      <button class="chart-close" onclick="closeChart()">✕</button>
+    </div>
+    <div class="chart-body">
+      <div class="chart-candles" id="chart-container"></div>
+      <div class="chart-indicators" id="chart-indicators"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Lightweight Charts Library -->
+<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 </body>
 </html>"""
     return HTMLResponse(content=html)
