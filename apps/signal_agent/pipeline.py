@@ -374,8 +374,79 @@ class SignalPipeline:
                 except Exception as exc:
                     log.debug("bias_engine_error", error=str(exc))
 
+                # ── 7. Confidence calibration ────────────────────────────
+                try:
+                    from libs.signals.calibration.engine import ConfidenceCalibrator
+                    cal_result = ConfidenceCalibrator().calibrate(
+                        raw_confidence=breakdown.weighted_total,
+                        strategy_name=strategy.name,
+                        strategy_win_rate=None,  # TODO: wire from outcome DB
+                        strategy_trade_count=15,  # Assume some history
+                        symbol_win_rate=None,
+                        regime_win_rate=None,
+                        conflict_score=bias_result.conflict_score if bias_result else 0.0,
+                    )
+                    if hasattr(breakdown, 'model_copy'):
+                        breakdown = breakdown.model_copy(update={
+                            "weighted_total": cal_result.calibrated_confidence,
+                        })
+                except Exception:
+                    cal_result = None
+
+                # ── 8. Trade grading ─────────────────────────────────────
+                grading_result = None
+                try:
+                    from libs.signals.grading.engine import TradeDecisionEngine, GradingInput
+                    vol_ctx = self._volume.analyze(df, candidate.proposed_action)
+                    grading_result = TradeDecisionEngine().grade(GradingInput(
+                        confidence=breakdown.weighted_total,
+                        risk_reward=self._emitter._calc_rr(candidate) if candidate.proposed_action != SignalAction.NO_TRADE else 0,
+                        bias_net=bias_result.net_bias if bias_result else "neutral",
+                        bias_conflict=bias_result.conflict_score if bias_result else 0.5,
+                        bias_bullish=bias_result.bullish_score if bias_result else 0.5,
+                        bias_bearish=bias_result.bearish_score if bias_result else 0.5,
+                        htf_aligned=htf_bias_str != "neutral",
+                        regime_supports=regime.vol_score >= 0.4 if hasattr(regime, 'vol_score') else True,
+                        structure_strength=deep_structure.strength if deep_structure else 0.0,
+                        volume_confirms=getattr(vol_ctx, 'is_confirming', False) if vol_ctx else False,
+                        data_quality_clean=quality.is_safe,
+                        action=candidate.proposed_action.value if candidate.proposed_action != SignalAction.NO_TRADE else "BUY",
+                        is_late_entry=False,
+                        is_overextended=False,
+                    ))
+                except Exception:
+                    pass
+
+                # ── 9. Futures risk ──────────────────────────────────────
+                try:
+                    from libs.core.models.domain import TradingMode
+                    if getattr(candidate, 'trading_mode', None) == TradingMode.FUTURES:
+                        from libs.risk.futures import FuturesRiskEngine
+                        futures_result = FuturesRiskEngine().assess(
+                            entry_price=(candidate.entry_zone_low + candidate.entry_zone_high) / 2,
+                            leverage=getattr(candidate, 'leverage', 3.0),
+                            margin_type="isolated",
+                            direction="LONG" if candidate.proposed_action == SignalAction.BUY else "SHORT",
+                            stop_loss=candidate.stop_loss,
+                        )
+                        if futures_result.should_reject:
+                            log.info("futures_risk_rejected", symbol=symbol, reason=futures_result.rejection_reason)
+                            continue
+                except Exception:
+                    pass
+
                 # Emit signal
                 output = self._emitter.emit(candidate, breakdown)
+
+                # Attach grading to output
+                if grading_result is not None:
+                    try:
+                        output = output.model_copy(update={
+                            "setup_grade": grading_result.setup_grade,
+                            "trade_decision": grading_result.trade_decision,
+                        })
+                    except Exception:
+                        pass
 
                 # ── Paper trading: dispatch with original proposed action ────
                 # Paper bots get the signal with the strategy's proposed action,
