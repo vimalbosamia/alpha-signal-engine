@@ -1029,7 +1029,7 @@ setInterval(refreshAll, 5000);
 </div>
 
 <!-- Lightweight Charts Library -->
-<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 </body>
 </html>"""
     return HTMLResponse(content=html)
