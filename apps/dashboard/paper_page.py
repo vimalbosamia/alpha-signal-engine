@@ -865,6 +865,13 @@ async function refreshAll() {
 
 // ── Chart Modal ──────────────────────────────────────────────────────────────
 let chartInstance = null;
+let chartCandleSeries = null;
+let chartRefreshInterval = null;
+let chartSymbol = null;
+let chartEntry = null;
+let chartSL = null;
+let chartTP1 = null;
+let chartAction = null;
 
 function openChart(symbol, entryPrice, stopLoss, tp1, action, strategy) {
   const overlay = document.getElementById('chart-overlay');
@@ -873,24 +880,50 @@ function openChart(symbol, entryPrice, stopLoss, tp1, action, strategy) {
   document.getElementById('chart-container').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading chart...</div>';
   document.getElementById('chart-indicators').innerHTML = '<div style="color:var(--muted)">Loading...</div>';
 
+  chartSymbol = symbol;
+  chartEntry = entryPrice;
+  chartSL = stopLoss;
+  chartTP1 = tp1;
+  chartAction = action;
+
+  loadChartData(symbol, entryPrice, stopLoss, tp1, action, true);
+
+  // Auto-refresh chart every 5 seconds
+  if (chartRefreshInterval) clearInterval(chartRefreshInterval);
+  chartRefreshInterval = setInterval(() => {
+    if (!document.getElementById('chart-overlay').classList.contains('open')) return;
+    loadChartData(chartSymbol, chartEntry, chartSL, chartTP1, chartAction, false);
+  }, 5000);
+}
+
+function loadChartData(symbol, entryPrice, stopLoss, tp1, action, firstLoad) {
   fetch('/api/paper/chart/' + symbol + '?timeframe=15m')
     .then(r => r.json())
     .then(data => {
       if (data.error) {
-        document.getElementById('chart-container').innerHTML = '<div style="color:var(--red);padding:20px">' + data.error + '</div>';
+        if (firstLoad) document.getElementById('chart-container').innerHTML = '<div style="color:var(--red);padding:20px">' + data.error + '</div>';
         return;
       }
-      renderChart(data, entryPrice, stopLoss, tp1, action);
+      if (firstLoad) {
+        renderChart(data, entryPrice, stopLoss, tp1, action);
+      } else {
+        // Update existing chart with new candle data
+        if (chartCandleSeries && data.candles.length) {
+          chartCandleSeries.setData(data.candles);
+        }
+      }
       renderIndicatorPanel(data);
     })
     .catch(e => {
-      document.getElementById('chart-container').innerHTML = '<div style="color:var(--red);padding:20px">Failed: ' + e.message + '</div>';
+      if (firstLoad) document.getElementById('chart-container').innerHTML = '<div style="color:var(--red);padding:20px">Failed: ' + e.message + '</div>';
     });
 }
 
 function closeChart() {
   document.getElementById('chart-overlay').classList.remove('open');
+  if (chartRefreshInterval) { clearInterval(chartRefreshInterval); chartRefreshInterval = null; }
   if (chartInstance) { chartInstance.remove(); chartInstance = null; }
+  chartCandleSeries = null;
 }
 
 function renderChart(data, entryPrice, stopLoss, tp1, action) {
@@ -906,16 +939,16 @@ function renderChart(data, entryPrice, stopLoss, tp1, action) {
     timeScale: { timeVisible: true, secondsVisible: false },
   });
 
-  const candleSeries = chartInstance.addCandlestickSeries({
+  chartCandleSeries = chartInstance.addCandlestickSeries({
     upColor: '#3fb950', downColor: '#f85149',
     borderUpColor: '#3fb950', borderDownColor: '#f85149',
     wickUpColor: '#3fb950', wickDownColor: '#f85149',
   });
-  candleSeries.setData(data.candles);
+  chartCandleSeries.setData(data.candles);
 
   // Entry line
   if (entryPrice) {
-    candleSeries.createPriceLine({
+    chartCandleSeries.createPriceLine({
       price: entryPrice, color: '#58a6ff', lineWidth: 1,
       lineStyle: LightweightCharts.LineStyle.Dashed,
       axisLabelVisible: true, title: 'Entry',
@@ -923,7 +956,7 @@ function renderChart(data, entryPrice, stopLoss, tp1, action) {
   }
   // Stop loss line
   if (stopLoss) {
-    candleSeries.createPriceLine({
+    chartCandleSeries.createPriceLine({
       price: stopLoss, color: '#f85149', lineWidth: 1,
       lineStyle: LightweightCharts.LineStyle.Dashed,
       axisLabelVisible: true, title: 'SL',
@@ -931,7 +964,7 @@ function renderChart(data, entryPrice, stopLoss, tp1, action) {
   }
   // TP1 line
   if (tp1) {
-    candleSeries.createPriceLine({
+    chartCandleSeries.createPriceLine({
       price: tp1, color: '#3fb950', lineWidth: 1,
       lineStyle: LightweightCharts.LineStyle.Dashed,
       axisLabelVisible: true, title: 'TP1',
