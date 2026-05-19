@@ -257,19 +257,66 @@ class SignalPipeline:
                     elif "down" in tv.lower():
                         htf_bias_str = "bearish"
 
-            # ── 5. Strategies ─────────────────────────────────────────────
+            # ── 4c. Compute directional bias ONCE per symbol ────────────
+            # Run all 40 pattern detectors once (not per-strategy)
+            pattern_results = [det.detect(df) for det in DEFAULT_DETECTORS]
+            candle_bull = sum(1 for p in pattern_results if getattr(p, "bias", "") == "bullish")
+            candle_bear = sum(1 for p in pattern_results if getattr(p, "bias", "") == "bearish")
+
+            # Compute composite bias
+            symbol_bias = None
+            try:
+                vol_ctx_bias = self._volume.analyze(df, SignalAction.BUY)  # neutral check
+                vol_confirms = getattr(vol_ctx_bias, "is_confirming", False) if vol_ctx_bias else False
+                trending_regimes = {"trending_up", "trending_down", "breakout"}
+                regime_val = regime.regime.value if hasattr(regime.regime, "value") else str(regime.regime)
+
+                symbol_bias = BullBearBiasEngine().score(BiasInput(
+                    indicator_bullish=indicator_bias.bullish_score if indicator_bias else 0.5,
+                    indicator_bearish=indicator_bias.bearish_score if indicator_bias else 0.5,
+                    structure_bias=deep_structure.trend_bias if deep_structure else "neutral",
+                    structure_strength=deep_structure.strength if deep_structure else 0.0,
+                    candle_bullish_count=candle_bull,
+                    candle_bearish_count=candle_bear,
+                    candle_total=len(pattern_results),
+                    regime_supports_direction=regime_val.lower() in trending_regimes,
+                    volume_confirms=vol_confirms,
+                    htf_bias=htf_bias_str,
+                ))
+                log.debug(
+                    "symbol_bias_computed",
+                    symbol=symbol,
+                    bias=symbol_bias.net_bias,
+                    bullish=symbol_bias.bullish_score,
+                    bearish=symbol_bias.bearish_score,
+                    conflict=symbol_bias.conflict_score,
+                )
+            except Exception as exc:
+                log.debug("symbol_bias_error", error=str(exc))
+
+            # Determine allowed direction: only trade WITH the bias
+            allowed_action = None  # None = NO_TRADE (conflicted)
+            if symbol_bias and symbol_bias.net_bias == "bullish":
+                allowed_action = SignalAction.BUY
+            elif symbol_bias and symbol_bias.net_bias == "bearish":
+                allowed_action = SignalAction.SELL
+            # neutral/conflicted = no trades for this symbol this cycle
+
+            if allowed_action is None:
+                log.debug("symbol_no_trade_bias_neutral", symbol=symbol,
+                          bias=symbol_bias.net_bias if symbol_bias else "unknown",
+                          conflict=symbol_bias.conflict_score if symbol_bias else 0)
+                return outputs  # Skip all strategies for this symbol
+
+            # ── 5. Strategies (direction-locked) ─────────────────────────
             for strategy in self._strategies:
                 if not strategy.is_eligible(asset_class, session, quality):
                     continue
                 if len(df) < strategy.min_bars_required:
                     continue
-                # Skip strategies auto-muted by poor win rate
                 if is_strategy_muted(strategy.name):
                     log.debug("strategy_muted_skipped", strategy=strategy.name, symbol=symbol)
                     continue
-
-                # Run pattern detectors
-                pattern_results = [det.detect(df) for det in DEFAULT_DETECTORS]
 
                 # Volume context per strategy (uses proposed_action from candidate)
                 try:
@@ -298,6 +345,17 @@ class SignalPipeline:
                 if candidate is None:
                     continue
 
+                # Direction lock: reject if strategy proposes opposite to bias
+                if candidate.proposed_action != SignalAction.NO_TRADE and candidate.proposed_action != allowed_action:
+                    log.debug(
+                        "direction_lock_rejected",
+                        symbol=symbol, strategy=strategy.name,
+                        proposed=candidate.proposed_action.value,
+                        allowed=allowed_action.value,
+                        bias=symbol_bias.net_bias if symbol_bias else "?",
+                    )
+                    continue
+
                 # Attach patterns from detectors to candidate
                 candidate = candidate.model_copy(
                     update={"pattern_results": pattern_results}
@@ -320,59 +378,7 @@ class SignalPipeline:
                     candidate, structure, levels, volume, regime, risk
                 )
 
-                # ── 6. Bull/Bear bias gate ───────────────────────────────
-                # Block signals that conflict with composite directional bias
-                bias_result = None
-                try:
-                    candle_bull = sum(1 for p in pattern_results if getattr(p, "bias", "") == "bullish")
-                    candle_bear = sum(1 for p in pattern_results if getattr(p, "bias", "") == "bearish")
-                    vol_ctx = self._volume.analyze(df, candidate.proposed_action)
-                    vol_confirms = getattr(vol_ctx, "is_confirming", False) if vol_ctx else False
-
-                    # Check if regime supports the proposed direction
-                    trending_regimes = {"trending_up", "trending_down", "breakout"}
-                    regime_val = regime.regime.value if hasattr(regime.regime, "value") else str(regime.regime)
-                    regime_supports = regime_val.lower() in trending_regimes
-
-                    bias_result = BullBearBiasEngine().score(BiasInput(
-                        indicator_bullish=indicator_bias.bullish_score if indicator_bias else 0.5,
-                        indicator_bearish=indicator_bias.bearish_score if indicator_bias else 0.5,
-                        structure_bias=deep_structure.trend_bias if deep_structure else "neutral",
-                        structure_strength=deep_structure.strength if deep_structure else 0.0,
-                        candle_bullish_count=candle_bull,
-                        candle_bearish_count=candle_bear,
-                        candle_total=len(pattern_results),
-                        regime_supports_direction=regime_supports,
-                        volume_confirms=vol_confirms,
-                        htf_bias=htf_bias_str,
-                    ))
-
-                    # Block if bias strongly conflicts with proposed action
-                    proposed = candidate.proposed_action
-                    if proposed == SignalAction.BUY and bias_result.net_bias == "bearish" and bias_result.bearish_score > 0.6:
-                        log.info(
-                            "bias_gate_blocked",
-                            symbol=symbol, strategy=strategy.name,
-                            proposed="BUY", bias="bearish",
-                            bearish_score=bias_result.bearish_score,
-                            conflict=bias_result.conflict_score,
-                        )
-                        continue  # Skip this signal — bias says bearish
-                    if proposed == SignalAction.SELL and bias_result.net_bias == "bullish" and bias_result.bullish_score > 0.6:
-                        log.info(
-                            "bias_gate_blocked",
-                            symbol=symbol, strategy=strategy.name,
-                            proposed="SELL", bias="bullish",
-                            bullish_score=bias_result.bullish_score,
-                            conflict=bias_result.conflict_score,
-                        )
-                        continue  # Skip this signal — bias says bullish
-
-                    # High conflict → reduce confidence
-                    if bias_result.conflict_score > 0.7:
-                        log.debug("bias_high_conflict", symbol=symbol, conflict=bias_result.conflict_score)
-                except Exception as exc:
-                    log.debug("bias_engine_error", error=str(exc))
+                # (Bias gate handled at symbol level above — direction already locked)
 
                 # ── 7. Confidence calibration ────────────────────────────
                 try:
@@ -384,7 +390,7 @@ class SignalPipeline:
                         strategy_trade_count=15,  # Assume some history
                         symbol_win_rate=None,
                         regime_win_rate=None,
-                        conflict_score=bias_result.conflict_score if bias_result else 0.0,
+                        conflict_score=symbol_bias.conflict_score if symbol_bias else 0.0,
                     )
                     if hasattr(breakdown, 'model_copy'):
                         breakdown = breakdown.model_copy(update={
@@ -401,10 +407,10 @@ class SignalPipeline:
                     grading_result = TradeDecisionEngine().grade(GradingInput(
                         confidence=breakdown.weighted_total,
                         risk_reward=self._emitter._calc_rr(candidate) if candidate.proposed_action != SignalAction.NO_TRADE else 0,
-                        bias_net=bias_result.net_bias if bias_result else "neutral",
-                        bias_conflict=bias_result.conflict_score if bias_result else 0.5,
-                        bias_bullish=bias_result.bullish_score if bias_result else 0.5,
-                        bias_bearish=bias_result.bearish_score if bias_result else 0.5,
+                        bias_net=symbol_bias.net_bias if symbol_bias else "neutral",
+                        bias_conflict=symbol_bias.conflict_score if symbol_bias else 0.5,
+                        bias_bullish=symbol_bias.bullish_score if symbol_bias else 0.5,
+                        bias_bearish=symbol_bias.bearish_score if symbol_bias else 0.5,
                         htf_aligned=htf_bias_str != "neutral",
                         regime_supports=regime.vol_score >= 0.4 if hasattr(regime, 'vol_score') else True,
                         structure_strength=deep_structure.strength if deep_structure else 0.0,
