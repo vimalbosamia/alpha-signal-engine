@@ -187,7 +187,8 @@ async def paper_chart_data(symbol: str, timeframe: str = "15m") -> JSONResponse:
     from libs.core.models.domain import Timeframe
 
     tf_map = {"1m": Timeframe.ONE_MIN, "5m": Timeframe.FIVE_MIN, "15m": Timeframe.FIFTEEN_MIN,
-              "30m": Timeframe.THIRTY_MIN, "1h": Timeframe.ONE_HOUR, "4h": Timeframe.FOUR_HOUR}
+              "30m": Timeframe.THIRTY_MIN, "1h": Timeframe.ONE_HOUR, "4h": Timeframe.FOUR_HOUR,
+              "1d": Timeframe.ONE_DAY, "1w": Timeframe.ONE_WEEK}
     tf = tf_map.get(timeframe, Timeframe.FIFTEEN_MIN)
 
     try:
@@ -897,7 +898,7 @@ function openChart(symbol, entryPrice, stopLoss, tp1, action, strategy) {
 }
 
 function loadChartData(symbol, entryPrice, stopLoss, tp1, action, firstLoad) {
-  fetch('/api/paper/chart/' + symbol + '?timeframe=15m')
+  fetch('/api/paper/chart/' + symbol + '?timeframe=' + chartTimeframe)
     .then(r => r.json())
     .then(data => {
       if (data.error) {
@@ -917,6 +918,22 @@ function loadChartData(symbol, entryPrice, stopLoss, tp1, action, firstLoad) {
     .catch(e => {
       if (firstLoad) document.getElementById('chart-container').innerHTML = '<div style="color:var(--red);padding:20px">Failed: ' + e.message + '</div>';
     });
+}
+
+let chartTimeframe = '15m';
+
+function switchTF(tf) {
+  chartTimeframe = tf;
+  // Highlight selected button
+  document.querySelectorAll('.chart-header .btn-sm').forEach(b => {
+    b.style.borderColor = b.textContent.trim() === tf ? 'var(--blue)' : 'var(--border)';
+    b.style.color = b.textContent.trim() === tf ? 'var(--blue)' : 'var(--muted)';
+  });
+  // Reload chart with new timeframe
+  if (chartSymbol) {
+    if (chartInstance) { chartInstance.remove(); chartInstance = null; chartCandleSeries = null; }
+    loadChartData(chartSymbol, chartEntry, chartSL, chartTP1, chartAction, true);
+  }
 }
 
 function closeChart() {
@@ -1052,7 +1069,17 @@ setInterval(refreshAll, 5000);
   <div class="chart-modal">
     <div class="chart-header">
       <h3 id="chart-title">Loading...</h3>
-      <button class="chart-close" onclick="closeChart()">✕</button>
+      <div style="display:flex;gap:4px;align-items:center">
+        <button class="btn-sm" onclick="switchTF('1m')">1m</button>
+        <button class="btn-sm" onclick="switchTF('5m')">5m</button>
+        <button class="btn-sm" onclick="switchTF('15m')" style="border-color:var(--blue);color:var(--blue)">15m</button>
+        <button class="btn-sm" onclick="switchTF('30m')">30m</button>
+        <button class="btn-sm" onclick="switchTF('1h')">1h</button>
+        <button class="btn-sm" onclick="switchTF('4h')">4h</button>
+        <button class="btn-sm" onclick="switchTF('1d')">1d</button>
+        <button class="btn-sm" onclick="switchTF('1w')">1w</button>
+        <button class="chart-close" onclick="closeChart()">✕</button>
+      </div>
     </div>
     <div class="chart-body">
       <div class="chart-candles" id="chart-container"></div>
