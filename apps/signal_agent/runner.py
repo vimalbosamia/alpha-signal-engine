@@ -15,15 +15,41 @@ from libs.core.models.domain import AssetClass, Timeframe
 from libs.data.providers.alpaca.provider import AlpacaDataProvider
 from libs.data.providers.binance.provider import BinanceDataProvider
 from libs.data.providers.binance_futures.provider import BinanceFuturesProvider
+# Reversal (5)
 from libs.strategies.reversal.hammer_reversal import HammerReversalStrategy
 from libs.strategies.reversal.shooting_star_reversal import ShootingStarReversalStrategy
+from libs.strategies.reversal.candle_reversal import CandlestickReversalStrategy
+from libs.strategies.reversal.failed_breakout import FailedBreakoutReversalStrategy
+from libs.strategies.reversal.liquidity_sweep import LiquiditySweepReversalStrategy
+# Breakout (7)
 from libs.strategies.breakout.resistance_breakout import ResistanceBreakoutStrategy
 from libs.strategies.breakout.support_breakdown import SupportBreakdownStrategy
+from libs.strategies.breakout.volume_breakout import VolumeBreakoutStrategy
+from libs.strategies.breakout.atr_breakout import ATRBreakoutStrategy
+from libs.strategies.breakout.range_breakout import RangeBreakoutStrategy
+from libs.strategies.breakout.break_retest import BreakRetestStrategy
+from libs.strategies.breakout.volatility_squeeze import VolatilitySqueezeStrategy
+from libs.strategies.breakout.opening_range import OpeningRangeBreakoutStrategy
+# Continuation (3)
 from libs.strategies.continuation.pullback import PullbackContinuationStrategy
 from libs.strategies.continuation.pullback_bear import PullbackBearContinuationStrategy
+from libs.strategies.continuation.momentum_continuation import MomentumContinuationStrategy
+# Momentum (2)
 from libs.strategies.momentum.rsi_strategy import RSIStrategy
 from libs.strategies.momentum.macd_crossover import MACDCrossoverStrategy
+# Trend (3)
 from libs.strategies.trend.ema_crossover import EMACrossoverStrategy
+from libs.strategies.trend.sma_crossover import SMACrossoverStrategy
+from libs.strategies.trend.trend_following import TrendFollowingStrategy
+# Mean Reversion (3)
+from libs.strategies.mean_reversion.bollinger_reversion import BollingerReversionStrategy
+from libs.strategies.mean_reversion.gap_fill import GapFillStrategy
+from libs.strategies.mean_reversion.range_fade import RangeFadeStrategy
+# Level (2)
+from libs.strategies.level.vwap_reclaim import VWAPReclaimStrategy
+from libs.strategies.level.fibonacci_bounce import FibonacciBounceStrategy
+# Confirmation (1)
+from libs.strategies.confirmation.mtf_alignment import MTFAlignmentStrategy
 from libs.audit.audit_log import AuditLog
 from libs.monitoring.metrics import MetricsCollector
 from libs.core.events.bus import EventBus
@@ -34,15 +60,41 @@ from apps.signal_agent.pipeline import SignalPipeline
 log = get_logger(__name__)
 
 DEFAULT_STRATEGIES = [
+    # Reversal (5)
     HammerReversalStrategy(),
     ShootingStarReversalStrategy(),
+    CandlestickReversalStrategy(),
+    FailedBreakoutReversalStrategy(),
+    LiquiditySweepReversalStrategy(),
+    # Breakout (7)
     ResistanceBreakoutStrategy(),
     SupportBreakdownStrategy(),
+    VolumeBreakoutStrategy(),
+    ATRBreakoutStrategy(),
+    RangeBreakoutStrategy(),
+    BreakRetestStrategy(),
+    VolatilitySqueezeStrategy(),
+    OpeningRangeBreakoutStrategy(),
+    # Continuation (3)
     PullbackContinuationStrategy(),
     PullbackBearContinuationStrategy(),
+    MomentumContinuationStrategy(),
+    # Momentum (2)
     RSIStrategy(),
     MACDCrossoverStrategy(),
+    # Trend (3)
     EMACrossoverStrategy(),
+    SMACrossoverStrategy(),
+    TrendFollowingStrategy(),
+    # Mean Reversion (3)
+    BollingerReversionStrategy(),
+    GapFillStrategy(),
+    RangeFadeStrategy(),
+    # Level (2)
+    VWAPReclaimStrategy(),
+    FibonacciBounceStrategy(),
+    # Confirmation (1)
+    MTFAlignmentStrategy(),
 ]
 
 
