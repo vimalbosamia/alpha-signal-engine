@@ -193,23 +193,37 @@ class BotAgent(ABC):
 
             hit_sl = False
             hit_tp = False
+            hit_early_profit = False
+
+            # Calculate unrealized % for early profit exit
+            if trade.action == "BUY":
+                unrealized_pct = (price - trade.entry_price) / trade.entry_price * 100
+            else:
+                unrealized_pct = (trade.entry_price - price) / trade.entry_price * 100
 
             if trade.action == "BUY":
                 if trade.stop_loss is not None and price <= trade.stop_loss:
                     hit_sl = True
                 elif take_profit is not None and price >= take_profit:
                     hit_tp = True
+                elif unrealized_pct >= 1.5:  # Early profit: 1.5%+ gain → close
+                    hit_early_profit = True
             else:  # SELL
                 if trade.stop_loss is not None and price >= trade.stop_loss:
                     hit_sl = True
                 elif take_profit is not None and price <= take_profit:
                     hit_tp = True
+                elif unrealized_pct >= 1.5:  # Early profit: 1.5%+ gain → close
+                    hit_early_profit = True
 
             if hit_sl:
                 status = "STOPPED_OUT"
                 exit_price = price
             elif hit_tp:
                 status = "TAKE_PROFIT"
+                exit_price = price
+            elif hit_early_profit:
+                status = "EARLY_PROFIT"
                 exit_price = price
             else:
                 continue
