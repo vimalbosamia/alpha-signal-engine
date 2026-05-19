@@ -50,8 +50,23 @@ from libs.analysis.patterns.two_candle import (
 )
 from libs.analysis.patterns.multi_candle import (
     MorningStarDetector, EveningStarDetector,
+    MorningDojiStarDetector, EveningDojiStarDetector,
     ThreeWhiteSoldiersDetector, ThreeBlackCrowsDetector,
+    BullishAbandonedBabyDetector, BearishAbandonedBabyDetector,
+    RisingThreeMethodsDetector, FallingThreeMethodsDetector,
 )
+from libs.analysis.patterns.context_candle import (
+    InsideBarDetector, OutsideBarDetector, PinBarDetector,
+    RejectionCandleDetector, BreakoutCandleDetector,
+    ExhaustionCandleDetector, MomentumCandleDetector,
+    LongWickCandleDetector, NarrowRangeCandleDetector,
+    WideRangeCandleDetector, TrapCandleDetector,
+    FailedBreakoutCandleDetector,
+)
+from libs.analysis.indicators.bias import IndicatorBiasAnalyzer
+from libs.analysis.structure.market_structure import MarketStructureAnalyzer
+from libs.analysis.levels.supply_demand import SupplyDemandDetector
+from libs.analysis.bias.engine import BullBearBiasEngine, BiasInput
 from libs.signals.confluence.engine import ConfluenceEngine
 from libs.signals.output.emitter import SignalEmitter
 from libs.risk.engine import RiskEngine
@@ -66,18 +81,31 @@ from libs.data.storage.db import get_session_factory
 
 log = get_logger(__name__)
 
-# Default pattern detectors (all instantiated with BALANCED mode)
+# All 40 pattern detectors (single + two + multi + context candle)
 DEFAULT_DETECTORS = [
+    # Single candle (10)
     HammerDetector(), InvertedHammerDetector(), ShootingStarDetector(),
     HangingManDetector(), DojiDetector(), DragonflyDojiDetector(),
     GravestoneDojiDetector(), SpinningTopDetector(),
     BullishMarubozuDetector(), BearishMarubozuDetector(),
+    # Two candle (8)
     BullishEngulfingDetector(), BearishEngulfingDetector(),
     BullishHaramiDetector(), BearishHaramiDetector(),
     PiercingLineDetector(), DarkCloudCoverDetector(),
     TweezerTopDetector(), TweezerBottomDetector(),
+    # Multi candle (10)
     MorningStarDetector(), EveningStarDetector(),
+    MorningDojiStarDetector(), EveningDojiStarDetector(),
     ThreeWhiteSoldiersDetector(), ThreeBlackCrowsDetector(),
+    BullishAbandonedBabyDetector(), BearishAbandonedBabyDetector(),
+    RisingThreeMethodsDetector(), FallingThreeMethodsDetector(),
+    # Context candle (12)
+    InsideBarDetector(), OutsideBarDetector(), PinBarDetector(),
+    RejectionCandleDetector(), BreakoutCandleDetector(),
+    ExhaustionCandleDetector(), MomentumCandleDetector(),
+    LongWickCandleDetector(), NarrowRangeCandleDetector(),
+    WideRangeCandleDetector(), TrapCandleDetector(),
+    FailedBreakoutCandleDetector(),
 ]
 
 
@@ -186,6 +214,49 @@ class SignalPipeline:
             regime = self._regime.analyze(df)
             indicators = self._indicators.compute(df)
 
+            # ── 4b. Deep analysis engines ────────────────────────────────
+            # Indicator bias (bullish/bearish/neutral per indicator)
+            try:
+                last_close = float(df["close"].iloc[-1])
+                rel_vol = float(df["relative_volume"].iloc[-1]) if "relative_volume" in df else 1.0
+                is_bull_candle = bool(df["is_bullish"].iloc[-1]) if "is_bullish" in df else True
+                indicator_bias = IndicatorBiasAnalyzer().analyze_all(
+                    rsi=indicators.rsi or 50, rsi_prev=indicators.rsi_prev or 50,
+                    macd_line=indicators.macd_line or 0, macd_signal=indicators.macd_signal or 0,
+                    histogram=indicators.macd_histogram or 0, histogram_prev=indicators.macd_histogram_prev or 0,
+                    close=last_close, bb_upper=indicators.bb_upper or last_close + 1,
+                    bb_lower=indicators.bb_lower or last_close - 1, bb_pct_b=indicators.bb_pct_b or 0.5,
+                    ema_9=indicators.ema_9 or last_close, ema_20=indicators.ema_20 or last_close,
+                    ema_50=indicators.ema_50 or last_close,
+                    adx=indicators.adx or 0,
+                    relative_volume=rel_vol, is_bullish_candle=is_bull_candle,
+                )
+            except Exception:
+                indicator_bias = None
+
+            # Market structure (HH/HL/LH/LL, BOS, CHoCH)
+            try:
+                deep_structure = MarketStructureAnalyzer().analyze(df)
+            except Exception:
+                deep_structure = None
+
+            # Supply/demand zones
+            try:
+                sd_zones = SupplyDemandDetector().detect(df)
+            except Exception:
+                sd_zones = []
+
+            # HTF bias string for bias engine
+            htf_bias_str = "neutral"
+            if htf_structure is not None:
+                trend_val = getattr(htf_structure, "trend", None)
+                if trend_val is not None:
+                    tv = trend_val.value if hasattr(trend_val, "value") else str(trend_val)
+                    if "up" in tv.lower():
+                        htf_bias_str = "bullish"
+                    elif "down" in tv.lower():
+                        htf_bias_str = "bearish"
+
             # ── 5. Strategies ─────────────────────────────────────────────
             for strategy in self._strategies:
                 if not strategy.is_eligible(asset_class, session, quality):
@@ -248,6 +319,60 @@ class SignalPipeline:
                 breakdown = self._confluence.score(
                     candidate, structure, levels, volume, regime, risk
                 )
+
+                # ── 6. Bull/Bear bias gate ───────────────────────────────
+                # Block signals that conflict with composite directional bias
+                bias_result = None
+                try:
+                    candle_bull = sum(1 for p in pattern_results if getattr(p, "bias", "") == "bullish")
+                    candle_bear = sum(1 for p in pattern_results if getattr(p, "bias", "") == "bearish")
+                    vol_ctx = self._volume.analyze(df, candidate.proposed_action)
+                    vol_confirms = getattr(vol_ctx, "is_confirming", False) if vol_ctx else False
+
+                    # Check if regime supports the proposed direction
+                    trending_regimes = {"trending_up", "trending_down", "breakout"}
+                    regime_val = regime.regime.value if hasattr(regime.regime, "value") else str(regime.regime)
+                    regime_supports = regime_val.lower() in trending_regimes
+
+                    bias_result = BullBearBiasEngine().score(BiasInput(
+                        indicator_bullish=indicator_bias.bullish_score if indicator_bias else 0.5,
+                        indicator_bearish=indicator_bias.bearish_score if indicator_bias else 0.5,
+                        structure_bias=deep_structure.trend_bias if deep_structure else "neutral",
+                        structure_strength=deep_structure.strength if deep_structure else 0.0,
+                        candle_bullish_count=candle_bull,
+                        candle_bearish_count=candle_bear,
+                        candle_total=len(pattern_results),
+                        regime_supports_direction=regime_supports,
+                        volume_confirms=vol_confirms,
+                        htf_bias=htf_bias_str,
+                    ))
+
+                    # Block if bias strongly conflicts with proposed action
+                    proposed = candidate.proposed_action
+                    if proposed == SignalAction.BUY and bias_result.net_bias == "bearish" and bias_result.bearish_score > 0.6:
+                        log.info(
+                            "bias_gate_blocked",
+                            symbol=symbol, strategy=strategy.name,
+                            proposed="BUY", bias="bearish",
+                            bearish_score=bias_result.bearish_score,
+                            conflict=bias_result.conflict_score,
+                        )
+                        continue  # Skip this signal — bias says bearish
+                    if proposed == SignalAction.SELL and bias_result.net_bias == "bullish" and bias_result.bullish_score > 0.6:
+                        log.info(
+                            "bias_gate_blocked",
+                            symbol=symbol, strategy=strategy.name,
+                            proposed="SELL", bias="bullish",
+                            bullish_score=bias_result.bullish_score,
+                            conflict=bias_result.conflict_score,
+                        )
+                        continue  # Skip this signal — bias says bullish
+
+                    # High conflict → reduce confidence
+                    if bias_result.conflict_score > 0.7:
+                        log.debug("bias_high_conflict", symbol=symbol, conflict=bias_result.conflict_score)
+                except Exception as exc:
+                    log.debug("bias_engine_error", error=str(exc))
 
                 # Emit signal
                 output = self._emitter.emit(candidate, breakdown)
