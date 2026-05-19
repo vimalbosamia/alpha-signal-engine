@@ -282,39 +282,46 @@ async def paper_chart_data(symbol: str, timeframe: str = "15m") -> JSONResponse:
                 if p["symbol"] == symbol:
                     positions.append(p)
 
+        import math
+        def _safe(v):
+            """Replace NaN/Inf with None for JSON safety."""
+            if v is None: return None
+            if isinstance(v, float) and (math.isnan(v) or math.isinf(v)): return None
+            return v
+
         return JSONResponse(content={
             "symbol": symbol,
             "timeframe": timeframe,
-            "candles": candles[-500:],  # last 500 bars
+            "candles": candles[-500:],
             "indicators": {
-                "rsi": round(indicators.rsi, 1) if indicators.rsi else None,
-                "macd_line": round(indicators.macd_line, 6) if indicators.macd_line else None,
-                "macd_signal": round(indicators.macd_signal, 6) if indicators.macd_signal else None,
-                "macd_histogram": round(indicators.macd_histogram, 6) if indicators.macd_histogram else None,
-                "ema_9": round(indicators.ema_9, 6) if indicators.ema_9 else None,
-                "ema_20": round(indicators.ema_20, 6) if indicators.ema_20 else None,
-                "ema_50": round(indicators.ema_50, 6) if indicators.ema_50 else None,
-                "bb_upper": round(indicators.bb_upper, 6) if indicators.bb_upper else None,
-                "bb_lower": round(indicators.bb_lower, 6) if indicators.bb_lower else None,
-                "adx": round(indicators.adx, 1) if indicators.adx else None,
-                "atr": round(indicators.atr, 6) if indicators.atr else None,
-                "volume_relative": round(rel_vol, 2),
+                "rsi": _safe(round(indicators.rsi, 1) if indicators.rsi else None),
+                "macd_line": _safe(round(indicators.macd_line, 6) if indicators.macd_line else None),
+                "macd_signal": _safe(round(indicators.macd_signal, 6) if indicators.macd_signal else None),
+                "macd_histogram": _safe(round(indicators.macd_histogram, 6) if indicators.macd_histogram else None),
+                "ema_9": _safe(round(indicators.ema_9, 6) if indicators.ema_9 else None),
+                "ema_20": _safe(round(indicators.ema_20, 6) if indicators.ema_20 else None),
+                "ema_50": _safe(round(indicators.ema_50, 6) if indicators.ema_50 else None),
+                "bb_upper": _safe(round(indicators.bb_upper, 6) if indicators.bb_upper else None),
+                "bb_lower": _safe(round(indicators.bb_lower, 6) if indicators.bb_lower else None),
+                "adx": _safe(round(indicators.adx, 1) if indicators.adx else None),
+                "atr": _safe(round(indicators.atr, 6) if indicators.atr else None),
+                "volume_relative": _safe(round(rel_vol, 2)),
             },
             "bias": {
                 "net": bias_report.net_bias,
-                "bullish": round(bias_report.bullish_score, 3),
-                "bearish": round(bias_report.bearish_score, 3),
+                "bullish": _safe(round(bias_report.bullish_score, 3)),
+                "bearish": _safe(round(bias_report.bearish_score, 3)),
             },
             "structure": {
                 "trend": structure.trend_bias,
-                "strength": round(structure.strength, 3),
+                "strength": _safe(round(structure.strength, 3)),
                 "last_swing_high": structure.last_swing_high,
                 "last_swing_low": structure.last_swing_low,
                 "events": [{"kind": e.kind, "direction": e.direction, "price": e.price} for e in structure.events[-5:]],
             },
             "regime": {
                 "name": regime.regime.value if hasattr(regime.regime, 'value') else str(regime.regime),
-                "vol_score": round(regime.vol_score, 3) if hasattr(regime, 'vol_score') else 0,
+                "vol_score": _safe(round(regime.vol_score, 3) if hasattr(regime, 'vol_score') else 0),
             },
             "positions": positions,
         })
