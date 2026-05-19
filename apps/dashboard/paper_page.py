@@ -186,24 +186,55 @@ async def paper_chart_data(symbol: str, timeframe: str = "15m") -> JSONResponse:
     from datetime import datetime, timedelta, timezone
     from libs.core.models.domain import Timeframe
 
-    tf_map = {"1m": Timeframe.ONE_MIN, "5m": Timeframe.FIVE_MIN, "15m": Timeframe.FIFTEEN_MIN,
-              "30m": Timeframe.THIRTY_MIN, "1h": Timeframe.ONE_HOUR, "4h": Timeframe.FOUR_HOUR,
+    tf_map = {"1s": Timeframe.ONE_MIN, "1m": Timeframe.ONE_MIN, "5m": Timeframe.FIVE_MIN,
+              "15m": Timeframe.FIFTEEN_MIN, "30m": Timeframe.THIRTY_MIN,
+              "1h": Timeframe.ONE_HOUR, "4h": Timeframe.FOUR_HOUR,
               "1d": Timeframe.ONE_DAY, "1w": Timeframe.ONE_WEEK}
+    # For 1s, we'll use Binance's 1s kline endpoint separately
     tf = tf_map.get(timeframe, Timeframe.FIFTEEN_MIN)
 
     try:
         now = datetime.now(timezone.utc)
-        start = now - timedelta(days=3)
-
-        if symbol.endswith("USDT"):
-            from libs.data.providers.binance.provider import BinanceDataProvider
-            provider = BinanceDataProvider()
-        else:
-            from libs.data.providers.alpaca.provider import AlpacaDataProvider
-            provider = AlpacaDataProvider()
+        # Adjust lookback based on timeframe to get 500 bars
+        lookback_map = {"1s": 1, "1m": 1, "5m": 3, "15m": 7, "30m": 14,
+                        "1h": 25, "4h": 90, "1d": 550, "1w": 3650}
+        days = lookback_map.get(timeframe, 7)
+        start = now - timedelta(days=days)
 
         from libs.data.candles.builder import CandleBuilder
-        df = await provider.get_candles(symbol, tf, start, now)
+
+        if timeframe == "1s" and symbol.endswith("USDT"):
+            # Binance 1s klines — fetch 500 seconds of data via REST
+            import httpx
+            import pandas as pd
+            end_ms = int(now.timestamp() * 1000)
+            start_ms = end_ms - (500 * 1000)  # 500 seconds back
+            url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1s&startTime={start_ms}&endTime={end_ms}&limit=500"
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                raw = resp.json()
+            if not raw:
+                return JSONResponse(content={"error": "No 1s data"}, status_code=404)
+            df = pd.DataFrame(raw, columns=[
+                "open_time", "open", "high", "low", "close", "volume",
+                "close_time", "quote_volume", "trade_count",
+                "taker_buy_base", "taker_buy_quote", "ignore",
+            ])
+            df["timestamp"] = pd.to_datetime(df["open_time"], unit="ms", utc=True)
+            df = df.set_index("timestamp")
+            for col in ["open", "high", "low", "close", "volume"]:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+            df = CandleBuilder().enrich(df)
+        else:
+            if symbol.endswith("USDT"):
+                from libs.data.providers.binance.provider import BinanceDataProvider
+                provider = BinanceDataProvider()
+            else:
+                from libs.data.providers.alpaca.provider import AlpacaDataProvider
+                provider = AlpacaDataProvider()
+            df = await provider.get_candles(symbol, tf, start, now)
+            df = CandleBuilder().enrich(df)
         df = CandleBuilder().enrich(df)
 
         # Compute indicators
@@ -254,7 +285,7 @@ async def paper_chart_data(symbol: str, timeframe: str = "15m") -> JSONResponse:
         return JSONResponse(content={
             "symbol": symbol,
             "timeframe": timeframe,
-            "candles": candles[-100:],  # last 100 bars
+            "candles": candles[-500:],  # last 500 bars
             "indicators": {
                 "rsi": round(indicators.rsi, 1) if indicators.rsi else None,
                 "macd_line": round(indicators.macd_line, 6) if indicators.macd_line else None,
@@ -1070,6 +1101,7 @@ setInterval(refreshAll, 5000);
     <div class="chart-header">
       <h3 id="chart-title">Loading...</h3>
       <div style="display:flex;gap:4px;align-items:center">
+        <button class="btn-sm" onclick="switchTF('1s')">1s</button>
         <button class="btn-sm" onclick="switchTF('1m')">1m</button>
         <button class="btn-sm" onclick="switchTF('5m')">5m</button>
         <button class="btn-sm" onclick="switchTF('15m')" style="border-color:var(--blue);color:var(--blue)">15m</button>
