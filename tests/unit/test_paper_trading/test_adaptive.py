@@ -87,15 +87,15 @@ class TestAdaptiveBotBaseline:
         assert bot.should_take_signal(signal) is True
 
     def test_adaptive_skips_below_baseline(self):
-        """Confidence 0.55 < BASE (0.60) → reject."""
+        """Confidence 0.35 < BASE (0.40) → reject."""
         bot = AdaptiveBot()
-        signal = _sig(confidence=0.55, estimated_risk_reward=2.0)
+        signal = _sig(confidence=0.35, estimated_risk_reward=2.0)
         assert bot.should_take_signal(signal) is False
 
     def test_adaptive_skips_low_rr(self):
-        """R:R 1.2 < BASE_MIN_RR (1.5) → reject."""
+        """R:R 0.8 < BASE_MIN_RR (1.0) → reject."""
         bot = AdaptiveBot()
-        signal = _sig(confidence=0.70, estimated_risk_reward=1.2)
+        signal = _sig(confidence=0.70, estimated_risk_reward=0.8)
         assert bot.should_take_signal(signal) is False
 
     def test_adaptive_takes_exact_baseline_rr(self):

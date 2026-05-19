@@ -273,7 +273,7 @@ class TestOpenPositions:
         engine.dispatch_signal(_make_signal())
         positions = engine.get_all_open_positions()
         assert len(positions) >= 1
-        assert "bot" in positions[0]
+        assert "bot_name" in positions[0]
         assert "symbol" in positions[0]
 
 
@@ -297,7 +297,7 @@ class TestEventBusIntegration:
         engine = PaperTradingEngine()
         bus = EventBus()
         asyncio.get_event_loop().run_until_complete(engine.start(bus))
-        assert bus.handler_count(EventBus.SIGNAL_GENERATED) == 1
+        assert bus.handler_count("paper.signal.raw") == 1
 
     def test_on_signal_event_dispatches(self):
         """on_signal_event extracts signal from payload and dispatches it."""

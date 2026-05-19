@@ -75,10 +75,10 @@ def _make_guard(**kwargs) -> PortfolioGuard:
 class TestGuardConfig:
     def test_defaults(self):
         cfg = GuardConfig()
-        assert cfg.max_concurrent_signals == 10
-        assert cfg.max_per_symbol == 1
-        assert cfg.max_same_direction == 5
-        assert cfg.max_per_asset_class == 6
+        assert cfg.max_concurrent_signals == 50
+        assert cfg.max_per_symbol == 3
+        assert cfg.max_same_direction == 25
+        assert cfg.max_per_asset_class == 30
         assert cfg.max_age_hours == 24.0
 
     def test_custom_values(self):

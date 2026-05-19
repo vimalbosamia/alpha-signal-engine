@@ -50,19 +50,19 @@ class TestKellyFraction:
 
 class TestPositionSize:
     def test_position_size_cold_start(self, allocator: CapitalAllocator) -> None:
-        """Phase 1 (trade_count=5): fixed 1% of 1667 ≈ 16.67, above MIN_TRADE_SIZE."""
+        """Phase 1 (trade_count=5): fixed 5% of 1667 ≈ 83.35, above MIN_TRADE_SIZE."""
         result = allocator.position_size(
             bot_capital=1667.0,
             trade_count=5,
             win_rate=0.6,
             avg_win_loss_ratio=2.0,
         )
-        assert result == pytest.approx(16.67, rel=1e-4)
+        assert result == pytest.approx(83.35, rel=1e-2)
 
     def test_position_size_minimum(self, allocator: CapitalAllocator) -> None:
-        """Phase 1 (trade_count=5): 1% of 500 = 5.0, below $10 minimum → 0."""
+        """Phase 1 (trade_count=5): 5% of 150 = 7.5, below $10 minimum → 0."""
         result = allocator.position_size(
-            bot_capital=500.0,
+            bot_capital=150.0,
             trade_count=5,
             win_rate=0.6,
             avg_win_loss_ratio=2.0,
@@ -71,27 +71,28 @@ class TestPositionSize:
 
     def test_position_size_learning_phase(self, allocator: CapitalAllocator) -> None:
         """Phase 2 (trade_count=20): quarter-Kelly sizing."""
-        # kelly = 0.6 - 0.4/2 = 0.4; quarter = 0.4 * 0.25 * 10_000 = 1000
-        # cap at MAX_SINGLE_TRADE_PCT (5%): 10_000 * 0.05 = 500
+        # kelly = 0.6 - 0.4/2 = 0.4 → capped to 0.25; quarter = 0.25 * 0.25 * 10_000 = 625
         result = allocator.position_size(
             bot_capital=10_000.0,
             trade_count=20,
             win_rate=0.6,
             avg_win_loss_ratio=2.0,
         )
-        expected = min(0.4 * 0.25 * 10_000.0, 10_000.0 * 0.05)
+        capped_kelly = 0.25  # MAX_KELLY_FRACTION
+        expected = min(capped_kelly * 0.25 * 10_000.0, 10_000.0 * 0.15)
         assert result == pytest.approx(expected, rel=1e-6)
 
     def test_position_size_full_phase(self, allocator: CapitalAllocator) -> None:
         """Phase 3 (trade_count=50): half-Kelly sizing."""
-        # kelly = 0.4; half = 0.4 * 0.5 * 10_000 = 2000; cap at 500
+        # kelly = 0.4 → capped to 0.25; half = 0.25 * 0.5 * 10_000 = 1250
         result = allocator.position_size(
             bot_capital=10_000.0,
             trade_count=50,
             win_rate=0.6,
             avg_win_loss_ratio=2.0,
         )
-        expected = min(0.4 * 0.5 * 10_000.0, 10_000.0 * 0.05)
+        capped_kelly = 0.25
+        expected = min(capped_kelly * 0.5 * 10_000.0, 10_000.0 * 0.15)
         assert result == pytest.approx(expected, rel=1e-6)
 
     def test_position_size_negative_kelly_returns_zero(self, allocator: CapitalAllocator) -> None:
