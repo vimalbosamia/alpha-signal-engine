@@ -78,15 +78,15 @@ class BullBearBiasEngine:
     """
 
     # ── Factor weights ────────────────────────────────────────────────────────
-    WEIGHT_INDICATORS: float = 0.30
+    WEIGHT_INDICATORS: float = 0.35
     WEIGHT_STRUCTURE: float  = 0.25
-    WEIGHT_CANDLES: float    = 0.15
+    WEIGHT_CANDLES: float    = 0.05
     WEIGHT_REGIME: float     = 0.10
     WEIGHT_VOLUME: float     = 0.10
-    WEIGHT_HTF: float        = 0.10
+    WEIGHT_HTF: float        = 0.15
 
     # ── Decision threshold ────────────────────────────────────────────────────
-    NET_BIAS_MARGIN: float = 0.15
+    NET_BIAS_MARGIN: float = 0.05
 
     # ── HTF conflict penalty ──────────────────────────────────────────────────
     HTF_CONFLICT_SHIFT: float  = 0.05   # points moved from dominant to opposite
