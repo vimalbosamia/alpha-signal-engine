@@ -36,7 +36,26 @@ async def paper_summary() -> JSONResponse:
             status_code=503,
         )
     try:
-        summary = _engine.get_summary(live_prices={})
+        # Fetch live prices for accurate unrealized P&L
+        prices: dict[str, float] = {}
+        try:
+            positions = _engine.get_all_open_positions()
+            symbols = {p["symbol"] for p in positions}
+            for sym in symbols:
+                try:
+                    if sym.endswith("USDT"):
+                        from libs.data.providers.binance.provider import BinanceDataProvider
+                        price = await BinanceDataProvider().get_latest_price(sym)
+                    else:
+                        from libs.data.providers.alpaca.provider import AlpacaDataProvider
+                        price = await AlpacaDataProvider().get_latest_price(sym)
+                    if price:
+                        prices[sym] = price
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        summary = _engine.get_summary(live_prices=prices)
         return JSONResponse(content=summary)
     except Exception as exc:
         log.warning("paper_summary_failed", error=str(exc))
@@ -49,6 +68,42 @@ async def paper_positions() -> JSONResponse:
         return JSONResponse(content={"positions": []})
     try:
         positions = _engine.get_all_open_positions()
+
+        # Fetch live prices and calculate unrealized P&L per position
+        symbols = {p["symbol"] for p in positions}
+        prices: dict[str, float] = {}
+        for sym in symbols:
+            try:
+                if sym.endswith("USDT"):
+                    from libs.data.providers.binance.provider import BinanceDataProvider
+                    price = await BinanceDataProvider().get_latest_price(sym)
+                else:
+                    from libs.data.providers.alpaca.provider import AlpacaDataProvider
+                    price = await AlpacaDataProvider().get_latest_price(sym)
+                if price:
+                    prices[sym] = price
+            except Exception:
+                pass
+
+        for p in positions:
+            live = prices.get(p["symbol"])
+            if live:
+                p["live_price"] = live
+                entry = p["entry_price"]
+                size = p["position_size_usd"]
+                units = size / entry if entry else 0
+                if p["action"] == "BUY":
+                    pnl = (live - entry) * units
+                else:
+                    pnl = (entry - live) * units
+                pnl_pct = (pnl / size * 100) if size else 0
+                p["unrealized_pnl"] = round(pnl, 4)
+                p["unrealized_pnl_pct"] = round(pnl_pct, 2)
+            else:
+                p["live_price"] = None
+                p["unrealized_pnl"] = 0
+                p["unrealized_pnl_pct"] = 0
+
         return JSONResponse(content={"positions": positions})
     except Exception as exc:
         log.warning("paper_positions_failed", error=str(exc))
@@ -355,10 +410,12 @@ async def paper_dashboard() -> HTMLResponse:
             <th>Symbol</th>
             <th>Side</th>
             <th>Entry</th>
+            <th>Live Price</th>
+            <th>P&L</th>
+            <th>P&L%</th>
             <th>Size</th>
             <th>Stop</th>
             <th>TP1</th>
-            <th>TP2</th>
             <th>Strategy</th>
             <th>Since</th>
           </tr>
@@ -557,21 +614,26 @@ function renderPositions(positions) {
     return;
   }
   tbody.innerHTML = positions.map(p => {
-    const sideClr = p.side === 'BUY' || p.action === 'BUY' ? 'var(--green)' : 'var(--red)';
-    const side = p.side ?? p.action ?? '—';
-    const sideLabel = side === 'BUY' ? '▲ BUY' : side === 'SELL' ? '▼ SELL' : side;
-    const tp2 = p.take_profit_2 != null ? fmt(p.take_profit_2, 4) : '<span style="color:var(--muted)">—</span>';
+    const sideClr = p.action === 'BUY' ? 'var(--green)' : 'var(--red)';
+    const sideLabel = p.action === 'BUY' ? '▲ BUY' : '▼ SELL';
+    const pnl = p.unrealized_pnl ?? 0;
+    const pnlPct = p.unrealized_pnl_pct ?? 0;
+    const pnlClr = pnl >= 0 ? 'var(--green)' : 'var(--red)';
+    const pnlSign = pnl >= 0 ? '+' : '';
+    const livePrice = p.live_price ? fmt(p.live_price, 4) : '<span style="color:var(--muted)">—</span>';
     return `<tr>
-      <td style="color:var(--blue)">${p.bot_name ?? p.bot ?? '—'}</td>
+      <td style="color:var(--blue)">${p.bot_name ?? '—'}</td>
       <td style="font-weight:bold">${p.symbol ?? '—'}</td>
       <td style="color:${sideClr};font-weight:bold">${sideLabel}</td>
-      <td>${fmt(p.entry_price ?? p.entry, 4)}</td>
+      <td>${fmt(p.entry_price, 4)}</td>
+      <td style="font-weight:bold">${livePrice}</td>
+      <td style="color:${pnlClr};font-weight:bold">${pnlSign}$${fmt(pnl, 2)}</td>
+      <td style="color:${pnlClr}">${pnlSign}${fmt(pnlPct, 2)}%</td>
       <td style="color:var(--muted)">$${fmt(p.position_size_usd, 2)}</td>
       <td style="color:var(--red)">${fmt(p.stop_loss, 4)}</td>
       <td style="color:var(--green)">${fmt(p.take_profit_1, 4)}</td>
-      <td style="color:var(--blue)">${tp2}</td>
-      <td style="color:var(--muted);font-size:0.68rem">${p.strategy ?? p.strategy_name ?? '—'}</td>
-      <td style="color:var(--muted)">${elapsed(p.opened_at ?? p.entered_at)} ago</td>
+      <td style="color:var(--muted);font-size:0.68rem">${p.strategy_name ?? '—'}</td>
+      <td style="color:var(--muted)">${elapsed(p.opened_at)} ago</td>
     </tr>`;
   }).join('');
 }
