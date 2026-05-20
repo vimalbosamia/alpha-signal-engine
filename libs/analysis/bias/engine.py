@@ -89,7 +89,7 @@ class BullBearBiasEngine:
 
     # ── Decision threshold ────────────────────────────────────────────────────
     NET_BIAS_MARGIN: float = 0.05
-    MIN_ABSOLUTE_SCORE: float = 0.25  # Must score at least 25% to declare direction
+    MIN_ABSOLUTE_SCORE: float = 0.15  # Must score at least 15% to declare direction
 
     # ── HTF conflict penalty ──────────────────────────────────────────────────
     HTF_CONFLICT_SHIFT: float  = 0.05   # points moved from dominant to opposite
@@ -120,7 +120,7 @@ class BullBearBiasEngine:
         bull_norm, bear_norm, neutral_norm = self._normalize(bull, bear)
         conflict = self._compute_conflict(bull_norm, bear_norm, htf_conflicted)
         # ADX override: no trend = no direction
-        if inp.adx > 0 and inp.adx < 20:
+        if inp.adx > 0 and inp.adx < 12:
             net_bias = "neutral"
         else:
             net_bias = self._net_bias(bull_norm, bear_norm)
