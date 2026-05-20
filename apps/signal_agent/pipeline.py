@@ -456,11 +456,15 @@ class SignalPipeline:
 
                 # Regime-strategy matrix: check if strategy is allowed in this regime
                 regime_val = regime.regime.value if hasattr(regime.regime, "value") else str(regime.regime)
-                regime_check = self._regime_matrix.check(strategy.name, regime_val)
-                if not regime_check.is_allowed:
-                    log.debug("regime_matrix_blocked", symbol=symbol,
-                              strategy=strategy.name, regime=regime_val)
-                    continue
+                # Regime matrix: skip when structure strongly disagrees with regime
+                # Structure is more current than regime (EMA-based, lagging)
+                structure_override = deep_structure and deep_structure.strength > 0.6
+                if not structure_override:
+                    regime_check = self._regime_matrix.check(strategy.name, regime_val)
+                    if not regime_check.is_allowed:
+                        log.debug("regime_matrix_blocked", symbol=symbol,
+                                  strategy=strategy.name, regime=regime_val)
+                        continue
 
                 # Direction lock: reject if strategy proposes opposite to bias
                 if candidate.proposed_action != SignalAction.NO_TRADE and candidate.proposed_action != allowed_action:
