@@ -382,7 +382,7 @@ class SignalPipeline:
             # ── Market Participation Matrix ────────────────────────────
             from libs.analysis.participation.matrix import get_participation
             is_futures = self._trading_mode == "futures"
-            adx_val = indicators_result.adx if indicators_result and indicators_result.adx else 0
+            adx_val = indicators.adx if indicators and indicators.adx else 0
 
             participation = get_participation(
                 net_bias=symbol_bias.net_bias if symbol_bias else "neutral",
