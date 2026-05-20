@@ -4,6 +4,21 @@ Institutional-grade trading signal intelligence engine with 6 competing hedge fu
 
 **Signal-only system — NEVER places real trades.**
 
+> **WARNING — IMPORTANT DISCLAIMER**
+>
+> This software is for **educational and research purposes only**. It is NOT financial advice.
+>
+> - **No guarantee of profit.** Past performance does not indicate future results.
+> - **Trading involves substantial risk of loss.** You can lose some or all of your invested capital.
+> - **The developers are NOT responsible** for any financial losses, damages, or consequences arising from the use of this software.
+> - **Do NOT trade with money you cannot afford to lose.**
+> - **This system generates signals only** — it does not place, modify, or cancel any real orders.
+> - **Paper trading results are simulated** and do not reflect real market execution, slippage, or liquidity constraints.
+> - **Always consult a licensed financial advisor** before making any investment decisions.
+> - By using this software, you acknowledge that you are solely responsible for your own trading decisions.
+>
+> **USE AT YOUR OWN RISK.**
+
 ## Quick Start
 
 ```bash
