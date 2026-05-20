@@ -1116,8 +1116,8 @@ function renderPositions(positions) {
 
     // Market mode display
     const mode = (p.market_mode || 'SPOT').toUpperCase();
-    const modeClr = mode === 'FUTURES' ? 'var(--yellow)' : 'var(--cyan)';
-    const modeLabel = mode === 'FUTURES' ? 'FUTURES' : 'SPOT';
+    const modeClr = mode === 'FUTURES' ? 'var(--yellow)' : mode === 'EQUITY' ? 'var(--blue)' : 'var(--cyan)';
+    const modeLabel = mode;
 
     // Intent + Direction
     const intent = p.position_intent || 'OPEN_LONG';
@@ -1147,7 +1147,7 @@ function renderPositions(positions) {
       <td style="color:${pnlClr};font-weight:bold">${pnlSign}$${fmt(pnl, 2)}</td>
       <td style="color:${pnlClr}">${pnlSign}${fmt(pnlPct, 2)}%</td>
       <td style="color:var(--muted)">$${fmt(p.position_size_usd, 2)}</td>
-      <td style="color:${mode === 'FUTURES' ? 'var(--yellow)' : 'var(--muted)'};font-weight:bold">${levLabel}</td>
+      <td style="color:${mode === 'FUTURES' ? 'var(--yellow)' : 'var(--muted)'}">${levLabel}</td>
       <td style="font-size:0.68rem;color:${entryBiasClr}">${(p.entry_bias||'?').toUpperCase()}</td>
       <td style="font-size:0.68rem;font-weight:bold;color:${bsClr}" title="Adverse checks: ${p.bias_adverse_count || 0}/2">${biasStatus.toUpperCase()}${(p.bias_adverse_count || 0) > 0 ? ' (' + p.bias_adverse_count + '/2)' : ''}</td>
       <td style="color:var(--red)">${fmt(p.stop_loss, 4)}</td>

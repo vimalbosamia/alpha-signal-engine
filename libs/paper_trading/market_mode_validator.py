@@ -320,8 +320,8 @@ def validate_signal(
 
     market_mode = market_mode.upper()
 
-    if market_mode == "SPOT":
-        return validate_spot_signal(
+    if market_mode in ("SPOT", "EQUITY"):
+        result = validate_spot_signal(
             side=side,
             symbol=symbol,
             position_size_usd=position_size_usd,
@@ -331,6 +331,8 @@ def validate_signal(
             existing_long_symbols=existing_long_symbols,
             available_cash=available_cash,
         )
+        result.market_mode = market_mode  # preserve EQUITY vs SPOT label
+        return result
 
     if market_mode == "FUTURES":
         return validate_futures_signal(

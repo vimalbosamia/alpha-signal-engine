@@ -178,13 +178,18 @@ class BotAgent(ABC):
             pass
 
         # ── Determine market mode ──
-        trading_mode_raw = getattr(signal, 'trading_mode', TradingMode.SPOT)
-        if isinstance(trading_mode_raw, TradingMode):
-            market_mode = trading_mode_raw.value.upper()
+        # Stocks = EQUITY (no spot/futures concept), Crypto = SPOT or FUTURES
+        is_crypto = signal.asset_class.value == "crypto"
+        if not is_crypto:
+            market_mode = "EQUITY"
+            leverage = 1.0
         else:
-            market_mode = "FUTURES" if "futures" in str(trading_mode_raw) else "SPOT"
-
-        leverage = 3.0 if market_mode == "FUTURES" else 1.0
+            trading_mode_raw = getattr(signal, 'trading_mode', TradingMode.SPOT)
+            if isinstance(trading_mode_raw, TradingMode):
+                market_mode = trading_mode_raw.value.upper()
+            else:
+                market_mode = "FUTURES" if "futures" in str(trading_mode_raw) else "SPOT"
+            leverage = 3.0 if market_mode == "FUTURES" else 1.0
 
         # ── Spot/Futures validation (document 4) ──
         existing_longs = {t.symbol for t in self._portfolio.open_trades if t.direction == "LONG"}
