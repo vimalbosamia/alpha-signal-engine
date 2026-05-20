@@ -63,12 +63,12 @@ class BullBearBiasEngine:
     Compute a composite directional bias from multiple evidence sources.
 
     Factor weights (must sum to 1.0):
-      indicators   30%
+      indicators   35%
       structure    25%
-      candles      15%
+      candles       5%
       regime       10%
       volume       10%
-      htf          10%
+      htf          15%
 
     HTF conflict penalty: when HTF direction disagrees with the dominant
     direction, 5% is shifted from dominant to opposite and conflict increases.

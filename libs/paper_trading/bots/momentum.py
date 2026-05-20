@@ -1,10 +1,9 @@
 """
 MomentumBot — chases trending and breakout moves.
 
-Accepts signals when:
-  - Strategy is in the known momentum set, OR confidence >= 0.7
-  - Market regime is trending/breakout (not ranging or climactic)
-  - Timeframe is M15, M30, or H1
+Accepts signals when strategy matches: ema_crossover, macd_crossover,
+sma_crossover, trend_following, momentum_continuation, mtf_alignment.
+Direction locked at pipeline level — bot only receives bias-aligned signals.
 """
 from __future__ import annotations
 

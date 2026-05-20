@@ -235,7 +235,6 @@ async def paper_chart_data(symbol: str, timeframe: str = "15m") -> JSONResponse:
                 provider = AlpacaDataProvider()
             df = await provider.get_candles(symbol, tf, start, now)
             df = CandleBuilder().enrich(df)
-        df = CandleBuilder().enrich(df)
 
         # Compute indicators
         from libs.analysis.indicators.engine import IndicatorsEngine

@@ -79,7 +79,7 @@ class CapitalAllocator:
         max_trade = bot_capital * MAX_SINGLE_TRADE_PCT
 
         if trade_count < 10:
-            # Phase 1 — cold start: fixed 1%
+            # Phase 1 — cold start: fixed 5%
             raw = bot_capital * 0.05
             sized = min(raw, max_trade)
         else:
