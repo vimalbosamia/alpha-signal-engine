@@ -390,7 +390,7 @@ async def paper_chart_data(symbol: str, timeframe: str = "15m") -> JSONResponse:
             if isinstance(v, float) and (math.isnan(v) or math.isinf(v)): return None
             return v
 
-        return JSONResponse(content={
+        resp_data = {
             "symbol": symbol,
             "timeframe": timeframe,
             "candles": candles[-500:],
@@ -425,7 +425,62 @@ async def paper_chart_data(symbol: str, timeframe: str = "15m") -> JSONResponse:
                 "vol_score": _safe(round(regime.vol_score, 3) if hasattr(regime, 'vol_score') else 0),
             },
             "positions": positions,
-        })
+            "patterns": [],
+            "strategies": [],
+        }
+
+        # Enrich with pattern detection + strategy signals
+        try:
+            from apps.signal_agent.pipeline import DEFAULT_DETECTORS
+            from libs.core.models.domain import AssetClass
+            for det in DEFAULT_DETECTORS:
+                try:
+                    result = det.detect(df)
+                    if result and hasattr(result, 'detected') and result.detected:
+                        resp_data["patterns"].append({
+                            "name": getattr(result, 'pattern_name', det.__class__.__name__),
+                            "bias": getattr(result, 'bias', 'neutral'),
+                            "category": getattr(result, 'category', 'unknown'),
+                            "strength": round(getattr(result, 'strength_score', 0), 2),
+                            "explanation": getattr(result, 'explanation', ''),
+                        })
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        try:
+            from apps.signal_agent.runner import DEFAULT_STRATEGIES
+            from libs.core.models.domain import AssetClass
+            from libs.analysis.structure.engine import MarketStructureEngine
+            from libs.analysis.levels.engine import KeyLevelsEngine
+            struct = MarketStructureEngine().analyze(df)
+            ac = AssetClass.CRYPTO if symbol.endswith('USDT') else AssetClass.STOCK
+            levels = KeyLevelsEngine().analyze(df, ac)
+            for strat in DEFAULT_STRATEGIES:
+                try:
+                    if len(df) < strat.min_bars_required:
+                        continue
+                    candidate = strat.generate_candidate(
+                        symbol=symbol, asset_class=ac,
+                        df=df, df_htf=None, session=None, quality=None,
+                        structure=struct, levels=levels, volume=None,
+                        regime=regime, indicators=indicators,
+                    )
+                    if candidate and candidate.proposed_action.value != 'NO_TRADE':
+                        resp_data["strategies"].append({
+                            "name": strat.name,
+                            "action": candidate.proposed_action.value,
+                            "entry": round((candidate.entry_zone_low + candidate.entry_zone_high) / 2, 6),
+                            "stop": round(candidate.stop_loss, 6) if candidate.stop_loss else None,
+                            "tp1": round(candidate.take_profit_1, 6) if candidate.take_profit_1 else None,
+                        })
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        return JSONResponse(content=resp_data)
     except Exception as exc:
         log.warning("chart_data_failed", symbol=symbol, error=str(exc))
         return JSONResponse(content={"error": str(exc)}, status_code=500)
@@ -1252,6 +1307,34 @@ function renderIndicatorPanel(data) {
       <h4>Regime</h4>
       <div class="ind-row"><span class="ind-label">Type</span><span class="ind-val">${regime.name}</span></div>
       <div class="ind-row"><span class="ind-label">Vol Score</span><span class="ind-val">${(regime.vol_score*100).toFixed(0)}%</span></div>
+    </div>
+
+    <div class="ind-section">
+      <h4>🕯️ Candle Patterns (${(data.patterns||[]).length})</h4>
+      ${(data.patterns||[]).length ? (data.patterns||[]).map(p => {
+        const clr = p.bias === 'bullish' ? 'var(--green)' : p.bias === 'bearish' ? 'var(--red)' : 'var(--muted)';
+        const icon = p.bias === 'bullish' ? '▲' : p.bias === 'bearish' ? '▼' : '─';
+        return '<div style="padding:2px 0;border-bottom:1px solid #1c2128">' +
+          '<span style="color:' + clr + ';font-weight:bold">' + icon + '</span> ' +
+          '<span style="color:var(--text)">' + p.name + '</span>' +
+          (p.strength ? ' <span style="color:var(--muted)">str=' + p.strength + '</span>' : '') +
+          (p.explanation ? '<div style="color:var(--muted);font-size:0.62rem;margin-left:12px">' + p.explanation.slice(0,60) + '</div>' : '') +
+          '</div>';
+      }).join('') : '<div style="color:var(--muted)">No patterns detected</div>'}
+    </div>
+
+    <div class="ind-section">
+      <h4>📊 Strategy Signals (${(data.strategies||[]).length})</h4>
+      ${(data.strategies||[]).length ? (data.strategies||[]).map(s => {
+        const clr = s.action === 'BUY' ? 'var(--green)' : 'var(--red)';
+        const icon = s.action === 'BUY' ? '▲ BUY' : '▼ SELL';
+        return '<div style="padding:3px 0;border-bottom:1px solid #1c2128">' +
+          '<span style="color:' + clr + ';font-weight:bold">' + icon + '</span> ' +
+          '<span style="color:var(--blue)">' + s.name + '</span>' +
+          '<div style="font-size:0.62rem;color:var(--muted);margin-left:12px">' +
+          'Entry: ' + (s.entry||'—') + ' SL: ' + (s.stop||'—') + ' TP: ' + (s.tp1||'—') +
+          '</div></div>';
+      }).join('') : '<div style="color:var(--muted)">No strategies triggering</div>'}
     </div>
   `;
 }
