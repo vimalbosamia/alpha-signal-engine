@@ -1,6 +1,6 @@
-# AI Trading Signal Agent
+# Alpha Signal Engine
 
-Institutional-grade trading signal intelligence engine with 6 competing hedge fund bots, 27 strategies, 40 pattern detectors, and real-time paper trading dashboard.
+Institutional-grade AI trading signal intelligence engine with 6 competing hedge fund bots, 27 strategies, 40 candle pattern detectors, 32 analysis engines, and a real-time glassmorphism paper trading dashboard.
 
 **Signal-only system — NEVER places real trades.**
 
@@ -19,6 +19,8 @@ Institutional-grade trading signal intelligence engine with 6 competing hedge fu
 >
 > **USE AT YOUR OWN RISK.**
 
+---
+
 ## Quick Start
 
 ```bash
@@ -29,8 +31,8 @@ uv sync
 cp .env.example .env
 # Edit .env with your API keys (Alpaca for stocks, Binance needs no key)
 
-# 3. Start server
-uv run python -m apps.signal_agent.main serve
+# 3. Start server (30s scan interval for active trading)
+uv run python -m apps.signal_agent.main serve --interval 30
 
 # 4. Open dashboard
 open http://localhost:8000/paper
@@ -39,7 +41,7 @@ open http://localhost:8000/paper
 ## Server Commands
 
 ```bash
-# Start server (default: 15m timeframe, 60s scan interval)
+# Start server (default: 15m timeframe, 300s scan interval)
 uv run python -m apps.signal_agent.main serve
 
 # Start with custom settings
@@ -59,9 +61,22 @@ uv run python -m pytest tests/ -q
 
 | URL | Description |
 |-----|-------------|
-| http://localhost:8000 | Main dashboard (signals + paper trading embedded) |
-| http://localhost:8000/paper | Full paper trading view (new design) |
-| http://localhost:8000/docs | API documentation (Swagger) |
+| `http://localhost:8000` | Main dashboard (signals overview) |
+| `http://localhost:8000/paper` | Paper trading dashboard (glassmorphism UI) |
+| `http://localhost:8000/docs` | API documentation (Swagger) |
+
+---
+
+## Universe Coverage
+
+| Category | Count | Symbols |
+|---|---|---|
+| **US Stocks** | 32 | AAPL, MSFT, NVDA, AMD, AMZN, GOOGL, META, TSLA, AVGO, SMCI, MU, ARM, PLTR, TSM, JPM, GS, BAC, MS, NFLX, SHOP, SNOW, CRM, UBER, SPY, QQQ, IWM, DIA, SMH, XLF, XLK, TLT, GLD |
+| **Crypto (Spot)** | 29 | BTCUSDT, ETHUSDT, SOLUSDT, XRPUSDT, BNBUSDT, DOGEUSDT, ADAUSDT, AVAXUSDT, DOTUSDT, LINKUSDT, NEARUSDT, SUIUSDT, ATOMUSDT, UNIUSDT, AAVEUSDT, INJUSDT, ARBUSDT, OPUSDT, IMXUSDT, PEPEUSDT, SHIBUSDT, LTCUSDT, APTUSDT, STXUSDT, FETUSDT, RENDERUSDT, TONUSDT, BCHUSDT, POLUSDT |
+| **Crypto (Futures)** | 20 | BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, XRPUSDT, DOGEUSDT, ADAUSDT, LINKUSDT, DOTUSDT, AVAXUSDT, POLUSDT, LTCUSDT, NEARUSDT, SUIUSDT, APTUSDT, ARBUSDT, INJUSDT, FETUSDT, RENDERUSDT, TONUSDT |
+| **Macro** | 15 | SPY, QQQ, DIA, IWM, TLT, IEF, GLD, SLV, USO, VIX, UVXY, SMH, XLF, XLK, DXY |
+| **Market Leaders** | 7 | SPY, QQQ, AAPL, MSFT, NVDA, BTCUSDT, ETHUSDT |
+| **Total Unique** | **61** | |
 
 ---
 
@@ -69,40 +84,39 @@ uv run python -m pytest tests/ -q
 
 | Capability | Detail |
 |---|---|
-| **Data ingestion** | Alpaca (stocks), Binance (crypto), real-time OHLCV |
+| **Data ingestion** | Alpaca (stocks/ETFs), Binance spot + futures (crypto), real-time OHLCV |
 | **Data quality** | 14-check candle validator — blocks signals on critical data issues |
-| **Pattern detection** | 40 candlestick pattern detectors (reversal, continuation, indecision) |
-| **Technical analysis** | Indicators, market structure, volume profile, regime detection |
-| **Confluence scoring** | Weighted combination of patterns + indicators → signal strength 0–1 |
-| **Risk guardrails** | Max signals per symbol, correlated-signal limits, portfolio guard |
-| **Outcome tracking** | Records WIN/LOSS/EXPIRED per signal, per-strategy win rates |
+| **Pattern detection** | 40 candlestick pattern detectors (reversal, continuation, context-aware) |
+| **Technical analysis** | RSI, MACD, EMA, ADX, ATR, Bollinger Bands, volume profile, regime detection |
+| **Market structure** | BOS/CHoCH events with decay, swing highs/lows, trend classification |
+| **Bias engine** | Composite directional scoring: indicators 40%, structure 15%, regime 15%, HTF 15%, volume 10%, candles 5% |
+| **Participation matrix** | 8 market states decide which modes (SPOT/FUTURES LONG/SHORT) are allowed |
+| **Spot/Futures separation** | EQUITY (stocks), SPOT (crypto), FUTURES (leveraged) — each with distinct rules |
+| **Paper trading** | 6 competing hedge fund bots, $10K virtual capital, Kelly criterion sizing |
+| **Active trade management** | TP/SL, trailing stop, max hold (4hr), bias flip auto-exit (2-check rule) |
+| **Risk guardrails** | Leverage caps, liquidation buffer, duplicate position blocking, TP/SL validation |
+| **Confluence scoring** | Weighted combination of patterns + indicators + structure → signal strength 0-1 |
 | **ML classifier** | Online learner — improves signal filtering from outcome history |
-| **Backtesting** | Walk-forward validation against historical OHLCV |
-| **Dashboard** | FastAPI + web UI for live signal monitoring |
+| **Shared loss memory** | 3+ losses on same pattern → all bots avoid; 2 wins reset |
+| **Dashboard** | Glassmorphism UI with Orbitron headings, interactive Lightweight Charts |
 | **Observability** | Structured logs (structlog), Prometheus metrics, audit trail |
 
 ---
 
-## Architecture
+## Paper Trading Bots
 
-```
-apps/
-  signal_agent/   — main agent loop, pipeline orchestrator
-  cli/            — backtest CLI
-  dashboard/      — FastAPI monitoring UI
-libs/
-  analysis/       — patterns (40 detectors), indicators, regime, structure
-  core/           — domain models, config, logging
-  data/           — providers (Alpaca/Binance), storage (SQLite), quality
-  ml/             — feature extraction, online signal classifier
-  monitoring/     — outcome tracker, portfolio guard, metrics, alerts
-  risk/           — risk engine, position sizing
-  signals/        — confluence scorer, signal output
-  strategies/     — breakout, momentum, reversal, trend, continuation
-tests/
-  unit/           — 534 tests across all modules
-  integration/    — storage and pipeline integration tests
-```
+6 competing hedge fund bots, each with distinct strategy preferences:
+
+| Bot | Style | Focus |
+|---|---|---|
+| **MomentumBot** | Trend follower | EMA crossovers, MTF alignment, strong momentum |
+| **ReversalBot** | Mean reversion | Exhaustion patterns, overbought/oversold RSI |
+| **MeanReversionBot** | Statistical | Bollinger Band extremes, Z-score reversion |
+| **ScalperBot** | Quick trades | Fast entries, tight stops, small targets |
+| **SwingBot** | Breakout hunter | Support/resistance breaks, volume confirmation |
+| **AdaptiveBot** | Self-tuning | Adjusts strategy mix based on recent win rate |
+
+All bots share loss memory — if one bot loses 3+ times on a pattern, ALL bots avoid it until 2 wins reset confidence.
 
 ---
 
@@ -140,13 +154,65 @@ Classification uses: BullBearBias scores, ADX trend strength, conflict score, ma
 | Concept | SPOT / EQUITY | FUTURES |
 |---|---|---|
 | **Shorting** | Not allowed | Allowed (OPEN_SHORT) |
-| **Leverage** | 1x always | 1-5x (default 3x) |
-| **Liquidation** | N/A | Calculated + buffer check |
-| **TP/SL validation** | SL < entry, TP > entry | Direction-aware |
+| **Leverage** | 1x always | 1-5x (default 3x, dev cap) |
+| **Liquidation** | N/A | Calculated + buffer check (min 5%) |
+| **TP/SL validation** | SL < entry, TP > entry | Direction-aware (short: SL > entry, TP < entry) |
 | **Market mode** | SPOT (crypto) / EQUITY (stocks) | FUTURES |
-| **Position intent** | OPEN_LONG / CLOSE_LONG only | All intents |
+| **Position intent** | OPEN_LONG / CLOSE_LONG only | All intents (OPEN_LONG/CLOSE_LONG/OPEN_SHORT/CLOSE_SHORT) |
+| **Duplicate blocking** | 1 long per symbol | 1 position per symbol per direction |
+| **P&L calculation** | `(exit - entry) * units` | `(exit - entry) * units * leverage` |
 
-Bias flip auto-exit: if live bias opposes direction for 2 consecutive 5-minute checks, position is auto-closed.
+**Bias flip auto-exit**: if live bias opposes trade direction for 2 consecutive 5-minute reanalysis checks, position is auto-closed. Aligned bias resets counter. Neutral does not increment.
+
+---
+
+## Active Trade Management
+
+Every open position is monitored every 10 seconds:
+
+| Rule | Condition | Action |
+|---|---|---|
+| **TP/SL** | Price hits stop loss or take profit | Close immediately |
+| **Max hold** | Position held > 4 hours | Close (day trading mode) |
+| **Cut loss** | Unrealized P&L < -1.5% after 20 min | Close |
+| **Break-even exit** | P&L < -0.3% after 40 min | Close |
+| **Sustained adverse** | Price moves against for 30 consecutive checks (~5 min) | Close |
+| **Bias flip** | Bias opposes direction for 2 reanalysis cycles (10 min) | Close |
+
+---
+
+## Architecture
+
+```
+apps/
+  signal_agent/     — main agent loop, pipeline orchestrator, 27 strategies
+  cli/              — backtest CLI
+  dashboard/        — FastAPI monitoring UI (glassmorphism)
+libs/
+  analysis/
+    bias/           — BullBearBiasEngine (composite directional scoring)
+    indicators/     — RSI, MACD, EMA, ADX, ATR, Bollinger Bands
+    structure/      — BOS/CHoCH events, market structure, Wyckoff
+    regime/         — Market regime classification (trending/ranging/breakout)
+    participation/  — MarketParticipationMatrix (8 market states)
+    macro/          — News, sentiment, correlation, central bank, global risk
+    patterns/       — 40 candlestick pattern detectors
+    filters/        — Universe manager, dynamic symbol ranking
+    levels/         — Support/resistance key levels
+  core/             — Domain models, config, logging
+  data/             — Providers (Alpaca/Binance/Binance Futures), SQLite, quality
+  ml/               — Feature extraction, online signal classifier
+  learning/         — Performance tracker, model registry, shared loss memory
+  monitoring/       — Outcome tracker, portfolio guard, metrics, alerts
+  paper_trading/    — 6 bots, portfolio, market mode validator, bias exit logic
+  risk/             — Futures risk engine, VaR, trailing stop, position sizing
+  signals/          — Confluence scorer, confidence calibrator, explainability
+  strategies/       — breakout, momentum, reversal, trend, continuation (27 total)
+  validation/       — Monte Carlo, walk-forward, leakage guard
+tests/
+  unit/             — 59+ tests (market mode, bias exit, participation matrix)
+  integration/      — Storage and pipeline integration tests
+```
 
 ---
 
@@ -159,8 +225,8 @@ Bias flip auto-exit: if live bias opposes direction for 2 consecutive 5-minute c
 
 | Provider | Purpose | Free tier available |
 |---|---|---|
-| [Alpaca](https://alpaca.markets) | US stock OHLCV + live prices | Yes (paper trading) |
-| [Binance](https://www.binance.com) | Crypto OHLCV + live prices | Yes (testnet) |
+| [Alpaca](https://alpaca.markets) | US stock/ETF OHLCV + live prices | Yes (paper trading) |
+| [Binance](https://www.binance.com) | Crypto spot + futures OHLCV + live prices | Yes (no key needed for public data) |
 
 ---
 
@@ -169,8 +235,8 @@ Bias flip auto-exit: if live bias opposes direction for 2 consecutive 5-minute c
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/your-username/ai-trading-signal-agent.git
-cd ai-trading-signal-agent
+git clone https://github.com/vimalbosamia/alpha-signal-engine.git
+cd alpha-signal-engine
 
 # With uv (recommended)
 uv sync
@@ -190,72 +256,29 @@ cp .env.example .env
 Edit `.env` with your keys:
 
 ```env
-# Agent mode: research | backtest | paper | live
 AGENT_MODE=paper
 
-# Alpaca (stocks)
+# Alpaca (stocks + ETFs)
 ALPACA_API_KEY=your_key
 ALPACA_SECRET_KEY=your_secret
 ALPACA_BASE_URL=https://paper-api.alpaca.markets
 
-# Binance (crypto)
-BINANCE_API_KEY=your_key
-BINANCE_SECRET_KEY=your_secret
-BINANCE_ENV=testnet
+# Binance (crypto) — no key needed for public candle data
+BINANCE_API_KEY=
+BINANCE_SECRET_KEY=
+BINANCE_ENV=live
 
 # Watchlists
-STOCK_WATCHLIST=AAPL,MSFT,NVDA,TSLA
-CRYPTO_WATCHLIST=BTCUSDT,ETHUSDT,SOLUSDT
-
-# Signal quality thresholds
-MIN_CONFLUENCE_SCORE=0.65
-MIN_REWARD_RISK=2.0
+STOCK_WATCHLIST=AAPL,MSFT,NVDA,AMD,AMZN,GOOGL,META,TSLA,AVGO,SMCI,MU,ARM,PLTR,TSM,JPM,GS,BAC,MS,NFLX,SHOP,SNOW,CRM,UBER,SPY,QQQ,IWM,DIA,SMH,XLF,XLK,TLT,GLD
+CRYPTO_WATCHLIST=BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,DOGEUSDT,ADAUSDT,AVAXUSDT,DOTUSDT,LINKUSDT,NEARUSDT,SUIUSDT,ATOMUSDT,UNIUSDT,AAVEUSDT,INJUSDT,ARBUSDT,OPUSDT,IMXUSDT,PEPEUSDT,SHIBUSDT,LTCUSDT,APTUSDT,STXUSDT,FETUSDT,RENDERUSDT,TONUSDT,BCHUSDT,POLUSDT
+FUTURES_WATCHLIST=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,DOGEUSDT,ADAUSDT,LINKUSDT,DOTUSDT,AVAXUSDT,POLUSDT,LTCUSDT,NEARUSDT,SUIUSDT,APTUSDT,ARBUSDT,INJUSDT,FETUSDT,RENDERUSDT,TONUSDT
+ENABLE_FUTURES=true
 ```
-
-See `.env.example` for the full reference with all options.
 
 ### 3. Run tests
 
 ```bash
 uv run pytest tests/unit/ -q
-# Should show: 534 passed
-```
-
----
-
-## Running the Agent
-
-### Continuous scan loop
-
-```bash
-uv run python -m apps.signal_agent.main run
-uv run python -m apps.signal_agent.main run --timeframe 15m --interval 300
-```
-
-### Single symbol scan
-
-```bash
-uv run python -m apps.signal_agent.main once --symbol AAPL --asset-class stock
-uv run python -m apps.signal_agent.main once --symbol BTCUSDT --asset-class crypto
-```
-
-### Backtest a strategy
-
-```bash
-uv run python -m apps.cli.backtest \
-  --symbol BTCUSDT --asset-class crypto --timeframe 15m \
-  --strategy macd_crossover --days 90
-
-uv run python -m apps.cli.backtest \
-  --symbol AAPL --asset-class stock --timeframe 1h \
-  --strategy ema_crossover --days 180
-```
-
-### Dashboard
-
-```bash
-uv run python -m apps.dashboard.server
-# Open http://localhost:8000
 ```
 
 ---
@@ -266,24 +289,20 @@ Each signal is a structured object — never a market order:
 
 ```python
 SignalOutput(
-    signal_id=UUID(...),
     symbol="BTCUSDT",
     asset_class=AssetClass.CRYPTO,
-    timeframe=Timeframe.FIFTEEN_MIN,
-    action=SignalAction.BUY,           # BUY | SELL | NO_TRADE
-    confluence_score=0.78,             # 0.0–1.0
-    entry_zone_low=42100.0,
-    entry_zone_high=42500.0,
-    stop_loss=41200.0,
-    take_profit_1=44000.0,
-    take_profit_2=46000.0,
+    action=SignalAction.BUY,
+    trading_mode=TradingMode.FUTURES,    # SPOT | FUTURES
+    confidence=0.78,
+    entry_zone_low=107100.0,
+    entry_zone_high=107500.0,
+    stop_loss=106200.0,
+    take_profit_1=109000.0,
     strategy_name="breakout_momentum",
-    patterns_detected=["hammer", "breakout_candle", "morning_star"],
-    explanation="...",
+    market_regime=MarketRegime.TRENDING_UP,
+    patterns_detected=["hammer", "breakout_candle"],
 )
 ```
-
-NO_TRADE is emitted when data quality is critical, confluence is below threshold, risk limits are reached, or the strategy is muted due to poor win rate.
 
 ---
 
@@ -298,36 +317,22 @@ NO_TRADE is emitted when data quality is critical, confluence is below threshold
 | Multi-candle | 10 | Morning/Evening Star, Three White Soldiers, Abandoned Baby |
 | Context-aware | 12 | Breakout, Exhaustion, Trap, Failed Breakout, Wide/Narrow Range |
 
-Each detected pattern returns: `name`, `bias` (bullish/bearish/neutral), `category` (reversal/continuation/indecision), `strength` (0–100), `reliability` (0–100), `explanation`, `candle_index`, `timestamp`.
-
 **Patterns alone never create signals** — they only contribute to confluence scoring.
 
 ---
 
-## Data Quality
+## 27 Strategies
 
-The `CandleValidator` runs 14 checks before any analysis:
-
-**Critical (blocks signal):** empty data, negative prices, OHLC violations (high < open/close, low > open/close), duplicate timestamps, future timestamps, naive/non-UTC timestamps, ≥50% zero-volume candles.
-
-**Warning (logs, does not block by default):** stale data, minority zero-volume bars, statistical price outliers, crypto continuity gaps, stock intraday session gaps.
-
-Set `DATA_QUALITY_STRICT=true` in `.env` to block signals on warnings too.
-
----
-
-## Risk Guardrails
-
-Configured in `.env`:
-
-```env
-MAX_RISK_PER_SIGNAL_PCT=2.0      # max portfolio % at risk per signal
-MAX_SIGNALS_PER_SYMBOL=2         # max concurrent signals per ticker
-MAX_CORRELATED_SIGNALS=4         # max signals in the same sector/direction
-MAX_ACTIVE_SIGNALS=20            # total active signals cap
-```
-
-Strategies with a win rate below threshold over recent signals are automatically muted until performance recovers.
+| Category | Strategies |
+|---|---|
+| **Trend** | EMA Crossover, Trend Following, MTF Alignment |
+| **Breakout** | Resistance Breakout, Break and Retest, Range Breakout |
+| **Momentum** | MACD Crossover, RSI Divergence, Momentum Burst |
+| **Reversal** | Shooting Star Reversal, Hammer Reversal, Double Top/Bottom |
+| **Mean Reversion** | Bollinger Band Reversion, Z-Score Reversion |
+| **Structure** | Order Block, Fair Value Gap, Wyckoff Accumulation |
+| **Continuation** | Flag/Pennant, Inside Bar Breakout |
+| **Scalp** | Quick Scalp, Micro Breakout |
 
 ---
 
@@ -342,77 +347,12 @@ uv run mypy libs/ apps/
 
 # Tests with coverage
 uv run pytest tests/unit/ --cov=libs --cov-report=term-missing
+
+# Run specific test suite
+uv run pytest tests/unit/test_market_mode_validator.py -v
+uv run pytest tests/unit/test_bias_exit.py -v
+uv run pytest tests/unit/test_participation_matrix.py -v
 ```
-
-### Branch strategy
-
-| Branch | Purpose |
-|---|---|
-| `main` | Stable, tested |
-| `stage3-institutional-upgrades` | Pattern engine, data quality, ML classifier |
-
----
-
-## Claude Code Plugins Used
-
-This project was built using [Claude Code](https://claude.ai/code) with the following plugins and skills. If you want to contribute or extend this project using the same AI-assisted workflow:
-
-### Required plugins
-
-| Plugin | Install | Purpose |
-|---|---|---|
-| **superpowers** | `claude plugin install superpowers` | Core workflow skills: brainstorming, writing plans, subagent-driven development, TDD, code review |
-| **ruflo** (Rufalo) | `claude plugin install ruflo-core` | Specialized subagents: coder, reviewer, researcher, tester, security auditor |
-
-### Skills used
-
-| Skill | What it did |
-|---|---|
-| `superpowers:brainstorming` | Designed each phase before implementation |
-| `superpowers:writing-plans` | Produced step-by-step implementation plans |
-| `superpowers:subagent-driven-development` | Dispatched fresh implementer + 2-stage review (spec compliance then code quality) per task |
-| `superpowers:test-driven-development` | Enforced RED → GREEN → refactor discipline |
-| `ruflo-core:coder` | Wrote focused implementations per task |
-| `ruflo-core:reviewer` | Code quality gate after each task |
-| `superpowers:code-reviewer` | Spec compliance gate after each task |
-
-### Session hooks
-
-| Hook | Purpose |
-|---|---|
-| **caveman mode** | Terse, filler-free responses — drop: "Sure!", "Certainly", "I'd be happy to". Enable: automatic on session start |
-| **graphify** | Trigger `/graphify` to push any input to a knowledge graph for cross-session memory |
-
-### Workflow used to build this project
-
-```
-/brainstorm → design doc → /plan → subagent-driven-development
-  └── per task: implementer → spec review → code quality review → commit
-```
-
-To reproduce the development workflow on a new feature:
-
-```
-# In Claude Code terminal
-/brainstorm     # design the feature
-/plan           # create implementation plan
-# Claude then auto-invokes subagent-driven-development
-```
-
----
-
-## What Was Built (Phase Summary)
-
-| Phase | What | Tests added |
-|---|---|---|
-| Phase 1 | Domain models, strategy base, confluence scorer, signal output | — |
-| Phase 2 | `CandleValidator` — 14-check data quality gate | +65 |
-| Phase 3 — Task 1 | `PatternResult` extended: strength, reliability_score, explanation, category | +9 |
-| Phase 3 — Task 2 | 28 existing detectors enriched with category/reliability/explanation | — |
-| Phase 3 — Task 3 | 12 new context-aware detectors (breakout, exhaustion, trap, etc.) | — |
-| Phase 3 — Task 4 | `CandlePatternEngine` — runs all 40 detectors, confidence-sorted output | — |
-| Phase 3 — Task 5 | Comprehensive test suite — all 40 detectors verified | +80 |
-| **Total** | | **534 passing** |
 
 ---
 
