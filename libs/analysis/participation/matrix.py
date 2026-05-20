@@ -72,7 +72,8 @@ def classify_market_state(
     if is_high_volatility:
         return MarketState.HIGH_VOLATILITY_EVENT
 
-    if conflict_score >= CONFLICT_HIGH:
+    # Very high conflict with no clear winner — blocked
+    if conflict_score >= CONFLICT_HIGH and abs(bullish_score - bearish_score) < 0.02:
         return MarketState.NEUTRAL
 
     spread = bullish_score - bearish_score
@@ -85,10 +86,11 @@ def classify_market_state(
         return MarketState.STRONG_BEAR
 
     # Weak trends: direction exists but not strong
-    if net_bias == "bullish" and spread > 0.03:
+    # Also catch cases where bias engine said "neutral" but one side leads
+    if (net_bias == "bullish" or spread > 0.03) and spread > 0.01:
         return MarketState.WEAK_BULL
 
-    if net_bias == "bearish" and (-spread) > 0.03:
+    if (net_bias == "bearish" or (-spread) > 0.03) and (-spread) > 0.01:
         return MarketState.WEAK_BEAR
 
     # Transition: ADX rising but no clear direction yet

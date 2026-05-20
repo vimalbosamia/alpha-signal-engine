@@ -400,16 +400,17 @@ class SignalPipeline:
                        conf_mult=participation.confidence_multiplier,
                        mode=self._trading_mode)
 
-            # Determine allowed direction based on mode + participation
+            # Determine allowed direction based on participation matrix state
+            # Trust the matrix — it already factored in bias, ADX, conflict, spread
             allowed_action = None
             if is_futures:
-                if participation.futures_long_allowed and symbol_bias and symbol_bias.net_bias == "bullish":
+                if participation.futures_long_allowed:
                     allowed_action = SignalAction.BUY
-                elif participation.futures_short_allowed and symbol_bias and symbol_bias.net_bias == "bearish":
+                elif participation.futures_short_allowed:
                     allowed_action = SignalAction.SELL
             else:
-                # SPOT / EQUITY: only BUY when allowed
-                if participation.spot_allowed and symbol_bias and symbol_bias.net_bias == "bullish":
+                # SPOT / EQUITY: only BUY when matrix allows
+                if participation.spot_allowed:
                     allowed_action = SignalAction.BUY
 
             if allowed_action is None:

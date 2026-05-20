@@ -16,8 +16,14 @@ class TestClassifyMarketState:
         state = classify_market_state("bullish", 0.5, 0.1, 0.3, 30, is_high_volatility=True)
         assert state == MarketState.HIGH_VOLATILITY_EVENT
 
-    def test_high_conflict_is_neutral(self):
+    def test_high_conflict_with_spread_is_weak_bull(self):
+        # spread=0.05 > 0.01 → WEAK_BULL even at high conflict
         state = classify_market_state("bullish", 0.3, 0.25, 0.95, 20)
+        assert state == MarketState.WEAK_BULL
+
+    def test_high_conflict_no_spread_is_neutral(self):
+        # spread < 0.02, conflict > 0.90 → truly NEUTRAL
+        state = classify_market_state("neutral", 0.20, 0.19, 0.95, 20)
         assert state == MarketState.NEUTRAL
 
     def test_strong_bull(self):
