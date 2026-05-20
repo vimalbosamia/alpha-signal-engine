@@ -237,9 +237,19 @@ class SignalRunner:
                 try:
                     positions = self._paper_engine.get_all_open_positions()
                     if positions:
-                        symbols = {p["symbol"] for p in positions}
+                        # Separate spot and futures symbols
+                        spot_symbols = set()
+                        futures_symbols = set()
+                        for p in positions:
+                            mode = p.get("trading_mode", "spot")
+                            if "futures" in str(mode):
+                                futures_symbols.add(p["symbol"])
+                            else:
+                                spot_symbols.add(p["symbol"])
+
                         prices: dict[str, float] = {}
-                        for sym in symbols:
+                        # Fetch spot prices
+                        for sym in spot_symbols:
                             try:
                                 if sym.endswith("USDT") and self._binance:
                                     price = await self._binance.get_latest_price(sym)
@@ -249,8 +259,17 @@ class SignalRunner:
                                     price = None
                                 if price:
                                     prices[sym] = price
-                            except Exception as price_exc:
-                                log.debug("paper_price_fetch_error", symbol=sym, error=str(price_exc))
+                            except Exception:
+                                pass
+                        # Fetch futures prices (different endpoint)
+                        for sym in futures_symbols:
+                            try:
+                                if self._binance_futures:
+                                    price = await self._binance_futures.get_latest_price(sym)
+                                    if price:
+                                        prices[sym] = price
+                            except Exception:
+                                pass
                         if prices:
                             closed = self._paper_engine.check_all_exits(prices)
                             if closed:

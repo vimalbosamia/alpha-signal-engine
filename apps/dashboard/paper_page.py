@@ -71,10 +71,11 @@ async def paper_positions() -> JSONResponse:
     try:
         positions = _engine.get_all_open_positions()
 
-        # Fetch live prices and calculate unrealized P&L per position
-        symbols = {p["symbol"] for p in positions}
+        # Fetch live prices — use futures endpoint for futures positions
+        futures_syms = {p["symbol"] for p in positions if "futures" in str(p.get("trading_mode", ""))}
+        spot_syms = {p["symbol"] for p in positions if p["symbol"] not in futures_syms}
         prices: dict[str, float] = {}
-        for sym in symbols:
+        for sym in spot_syms:
             try:
                 if sym.endswith("USDT"):
                     from libs.data.providers.binance.provider import BinanceDataProvider
@@ -82,6 +83,14 @@ async def paper_positions() -> JSONResponse:
                 else:
                     from libs.data.providers.alpaca.provider import AlpacaDataProvider
                     price = await AlpacaDataProvider().get_latest_price(sym)
+                if price:
+                    prices[sym] = price
+            except Exception:
+                pass
+        for sym in futures_syms:
+            try:
+                from libs.data.providers.binance_futures.provider import BinanceFuturesProvider
+                price = await BinanceFuturesProvider().get_latest_price(sym)
                 if price:
                     prices[sym] = price
             except Exception:
