@@ -69,14 +69,65 @@ class CoinbaseSettings(BaseSettings):
 class SignalSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="", env_file=".env", extra="ignore")
 
+    # Signal thresholds
     min_confluence_score: float = Field(default=0.40, ge=0.0, le=1.0)
     min_reward_risk: float = Field(default=1.0, ge=0.5)
     max_active_signals: int = Field(default=100, ge=1)
     max_signals_per_symbol: int = Field(default=5, ge=1)
-    stock_watchlist: str = "AAPL,MSFT,NVDA,TSLA,SPY,QQQ"
-    crypto_watchlist: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,DOGEUSDT,SUIUSDT,TONUSDT,TRXUSDT,NEARUSDT,LINKUSDT,ADAUSDT,PEPEUSDT,LTCUSDT,AVAXUSDT,DOTUSDT,MATICUSDT,ARBUSDT,OPUSDT,ATOMUSDT,UNIUSDT,AAVEUSDT,INJUSDT,BCHUSDT,XLMUSDT,DASHUSDT,ZECUSDT,ONDOUSDT,FETUSDT,APTUSDT,FILUSDT,SHIBUSDT,ETCUSDT,ICPUSDT,HBARUSDT,RENDERUSDT,GRTUSDT,STXUSDT,IMXUSDT,TAOUSDT"
+
+    # Watchlists
+    stock_watchlist: str = "AAPL,MSFT,NVDA,AMD,AMZN,GOOGL,META,TSLA"
+    crypto_watchlist: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,DOGEUSDT,ADAUSDT,AVAXUSDT,DOTUSDT,LINKUSDT,NEARUSDT,SUIUSDT,ATOMUSDT,UNIUSDT,AAVEUSDT,INJUSDT,ARBUSDT,OPUSDT,PEPEUSDT,SHIBUSDT,LTCUSDT,APTUSDT,STXUSDT,IMXUSDT,FETUSDT,RENDERUSDT,TONUSDT,BCHUSDT"
     futures_watchlist: str = "BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,DOGEUSDT,ADAUSDT,LINKUSDT,DOTUSDT,AVAXUSDT"
+    macro_watchlist: str = "SPY,QQQ,DIA,IWM,TLT,GLD,VIX"
     enable_futures: bool = True
+
+    # Dynamic universe
+    dynamic_universe_enabled: bool = True
+    max_active_symbols: int = 50
+    min_daily_volume_usd: float = 10_000_000
+    min_market_cap: float = 100_000_000
+
+    # Liquidity filters
+    min_orderbook_depth_usd: float = 500_000
+    max_spread_bps: float = 15
+    min_24h_volume_usd: float = 10_000_000
+
+    # Correlation limits
+    max_correlated_positions: int = 3
+    correlation_threshold: float = 0.85
+
+    # Session awareness
+    enable_session_filters: bool = True
+    trade_sessions: str = "ASIA,LONDON,NEW_YORK"
+    avoid_low_liquidity_hours: bool = True
+
+    # Futures config
+    futures_leverage: int = 3
+    max_futures_leverage: int = 5
+    enable_cross_margin: bool = False
+    enable_isolated_margin: bool = True
+    max_portfolio_leverage: float = 2.0
+
+    # Multi-timeframe
+    primary_timeframes: str = "5m,15m,1h,4h"
+    trend_timeframe: str = "4h"
+    execution_timeframe: str = "15m"
+    confirmation_timeframe: str = "1h"
+
+    # Symbol ranking
+    enable_symbol_scoring: bool = True
+
+    # BTC/stablecoin dominance
+    track_btc_dominance: bool = True
+    track_stablecoin_dominance: bool = True
+
+    # Auto-maintenance
+    auto_remove_delisted: bool = True
+    remove_low_volume: bool = True
+
+    # News sensitivity
+    high_news_sensitive: str = "BTCUSDT,ETHUSDT,NVDA,TSLA,AAPL"
 
     @property
     def stock_symbols(self) -> list[str]:
