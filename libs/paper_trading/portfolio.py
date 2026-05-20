@@ -239,23 +239,25 @@ class PaperPortfolio:
 
         closed_at = datetime.now(timezone.utc)
 
+        hold_secs = int((closed_at - trade.opened_at).total_seconds())
         result = {
             "trade_id": trade_id,
+            "bot_name": trade.bot_name,
             "symbol": trade.symbol,
             "action": trade.action,
             "entry_price": trade.entry_price,
             "exit_price": exit_price,
             "position_size_usd": trade.position_size_usd,
-            "units": units,
-            "gross_pnl": gross_pnl,
-            "exit_fee": exit_fee,
-            "pnl": net_pnl,
-            "return_pct": return_pct,
+            "realized_pnl": round(net_pnl, 4),
+            "pnl_pct": round(return_pct, 2),
+            "hold_duration_seconds": hold_secs,
             "status": status,
             "opened_at": trade.opened_at.isoformat(),
             "closed_at": closed_at.isoformat(),
             "strategy_name": trade.strategy_name,
             "signal_id": trade.signal_id,
+            "trading_mode": getattr(trade, 'trading_mode', 'spot'),
+            "leverage": getattr(trade, 'leverage', 1.0),
         }
 
         self._open_trades = [t for t in self._open_trades if t.id != trade_id]
