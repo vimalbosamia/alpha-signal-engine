@@ -265,7 +265,7 @@ class BotAgent(ABC):
             # ── Active Trade Management ──
             if not hit_sl and not hit_tp:
                 # Rule 1: Max hold time — close stale trades
-                max_hold = 60  # 1 hour max
+                max_hold = 240  # 4 hours max — gives trades room to develop
                 if hold_minutes > max_hold:
                     hit_management = True
                     mgmt_reason = f"Max hold exceeded ({hold_minutes:.0f}m > {max_hold}m)"
@@ -278,26 +278,27 @@ class BotAgent(ABC):
                     else:
                         max_progress = (trade.entry_price - price) / (trade.entry_price - take_profit) if trade.entry_price != take_profit else 0
 
-                # Rule 3: Deteriorating loss — cut losing trades faster
-                # If losing > 0.3% after 10+ minutes, market isn't going our way
-                if not hit_management and unrealized_pct < -0.3 and hold_minutes > 10:
+                # Rule 3: Deteriorating loss — cut losing trades
+                # Crypto needs room: -1.5% after 20+ min means trend is against us
+                if not hit_management and unrealized_pct < -1.5 and hold_minutes > 20:
                     hit_management = True
                     mgmt_reason = f"Cutting loss: {unrealized_pct:.2f}% after {hold_minutes:.0f}m"
 
-                # Rule 4: Break-even exit — if profitable then comes back to entry
-                if not hit_management and unrealized_pct < 0 and hold_minutes > 20:
+                # Rule 4: Break-even exit — was profitable, now losing after 40min
+                if not hit_management and unrealized_pct < -0.3 and hold_minutes > 40:
                     hit_management = True
-                    mgmt_reason = f"Break-even exit: returned to loss after {hold_minutes:.0f}m"
+                    mgmt_reason = f"Break-even exit: {unrealized_pct:.2f}% after {hold_minutes:.0f}m"
 
-                # Rule 5: Bias flip — if price consistently moves against entry for 2+ checks
-                # Track via bias_flip_count on the trade object
+                # Rule 5: Sustained adverse movement — consistent directional loss
                 if not hit_management:
-                    if unrealized_pct < -0.1:  # Moving against us
+                    if unrealized_pct < -0.5:  # Meaningful adverse move
                         trade.bias_flip_count += 1
+                    elif unrealized_pct > 0:  # In profit — reset counter
+                        trade.bias_flip_count = 0
                     else:
                         trade.bias_flip_count = max(0, trade.bias_flip_count - 1)
 
-                    if trade.bias_flip_count >= 12:  # ~2 min of consistent adverse movement (12 × 10s checks)
+                    if trade.bias_flip_count >= 30:  # ~5 min of consistent adverse (30 × 10s)
                         hit_management = True
                         mgmt_reason = f"Sustained adverse movement ({trade.bias_flip_count} checks)"
 
