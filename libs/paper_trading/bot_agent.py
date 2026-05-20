@@ -240,7 +240,7 @@ class BotAgent(ABC):
             # ── Active Trade Management ──
             if not hit_sl and not hit_tp:
                 # Rule 1: Max hold time — close stale trades
-                max_hold = 240  # 4 hours max
+                max_hold = 60  # 1 hour max
                 if hold_minutes > max_hold:
                     hit_management = True
                     mgmt_reason = f"Max hold exceeded ({hold_minutes:.0f}m > {max_hold}m)"
@@ -254,14 +254,14 @@ class BotAgent(ABC):
                         max_progress = (trade.entry_price - price) / (trade.entry_price - take_profit) if trade.entry_price != take_profit else 0
 
                 # Rule 3: Deteriorating loss — cut losing trades faster
-                # If losing > 0.5% after 30+ minutes, market isn't going our way
-                if not hit_management and unrealized_pct < -0.5 and hold_minutes > 30:
+                # If losing > 0.3% after 10+ minutes, market isn't going our way
+                if not hit_management and unrealized_pct < -0.3 and hold_minutes > 10:
                     hit_management = True
                     mgmt_reason = f"Cutting loss: {unrealized_pct:.2f}% after {hold_minutes:.0f}m"
 
                 # Rule 4: Break-even exit — if profitable then comes back to entry
                 # Was up > 0.3% but now flat/negative → protect capital
-                if not hit_management and unrealized_pct < 0 and hold_minutes > 60:
+                if not hit_management and unrealized_pct < 0 and hold_minutes > 20:
                     hit_management = True
                     mgmt_reason = f"Break-even exit: returned to loss after {hold_minutes:.0f}m"
 
