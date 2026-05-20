@@ -268,6 +268,109 @@ class SignalRunner:
 
         paper_exit_task = asyncio.create_task(_paper_exit_loop())
 
+        # Trade re-analysis loop — every 5 min, re-run bias on open positions
+        # If bias flipped against the trade → close it
+        async def _trade_reanalysis_loop():
+            while True:
+                await asyncio.sleep(300)  # Every 5 minutes
+                try:
+                    positions = self._paper_engine.get_all_open_positions()
+                    if not positions:
+                        continue
+
+                    symbols_to_check = {p["symbol"] for p in positions}
+                    log.info("trade_reanalysis_start", symbols=len(symbols_to_check))
+
+                    for sym in symbols_to_check:
+                        try:
+                            # Fetch fresh candles
+                            provider = self._binance if sym.endswith("USDT") and self._binance else self._alpaca
+                            if not provider:
+                                continue
+
+                            from datetime import timedelta
+                            from libs.core.models.domain import Timeframe
+                            from libs.data.candles.builder import CandleBuilder
+                            from libs.analysis.indicators.engine import IndicatorsEngine
+                            from libs.analysis.indicators.bias import IndicatorBiasAnalyzer
+                            from libs.analysis.structure.market_structure import MarketStructureAnalyzer
+                            from libs.analysis.bias.engine import BullBearBiasEngine, BiasInput
+                            from libs.analysis.regime.engine import RegimeEngine
+
+                            now = datetime.now()
+                            df = await provider.get_candles(sym, Timeframe.FIFTEEN_MIN, now - timedelta(days=3), now)
+                            df = CandleBuilder().enrich(df)
+
+                            if len(df) < 20:
+                                continue
+
+                            # Re-compute bias
+                            indicators = IndicatorsEngine().compute(df)
+                            regime = RegimeEngine().analyze(df)
+                            structure = MarketStructureAnalyzer().analyze(df)
+
+                            last_close = float(df["close"].iloc[-1])
+                            rel_vol = float(df["relative_volume"].iloc[-1]) if "relative_volume" in df else 1.0
+                            is_bull = bool(df["is_bullish"].iloc[-1]) if "is_bullish" in df else True
+
+                            indicator_bias = IndicatorBiasAnalyzer().analyze_all(
+                                rsi=indicators.rsi or 50, rsi_prev=indicators.rsi_prev or 50,
+                                macd_line=indicators.macd_line or 0, macd_signal=indicators.macd_signal or 0,
+                                histogram=indicators.macd_histogram or 0, histogram_prev=indicators.macd_histogram_prev or 0,
+                                close=last_close, bb_upper=indicators.bb_upper or last_close + 1,
+                                bb_lower=indicators.bb_lower or last_close - 1, bb_pct_b=indicators.bb_pct_b or 0.5,
+                                ema_9=indicators.ema_9 or last_close, ema_20=indicators.ema_20 or last_close,
+                                ema_50=indicators.ema_50 or last_close,
+                                adx=indicators.adx or 0,
+                                relative_volume=rel_vol, is_bullish_candle=is_bull,
+                            )
+
+                            new_bias = BullBearBiasEngine().score(BiasInput(
+                                indicator_bullish=indicator_bias.bullish_score,
+                                indicator_bearish=indicator_bias.bearish_score,
+                                structure_bias=structure.trend_bias,
+                                structure_strength=structure.strength,
+                                candle_bullish_count=0, candle_bearish_count=0, candle_total=1,
+                                regime_supports_direction=True,
+                                volume_confirms=rel_vol > 1.2,
+                                htf_bias="neutral",
+                            ))
+
+                            # Check if bias flipped against any open position on this symbol
+                            for bot in self._paper_engine.bots:
+                                for trade in list(bot.portfolio.open_trades):
+                                    if trade.symbol != sym:
+                                        continue
+
+                                    should_close = False
+                                    reason = ""
+
+                                    # SELL trade but bias now bullish → close
+                                    if trade.action == "SELL" and new_bias.net_bias == "bullish":
+                                        should_close = True
+                                        reason = f"Bias flipped to BULLISH — closing SELL"
+                                    # BUY trade but bias now bearish → close
+                                    elif trade.action == "BUY" and new_bias.net_bias == "bearish":
+                                        should_close = True
+                                        reason = f"Bias flipped to BEARISH — closing BUY"
+
+                                    if should_close:
+                                        price = await provider.get_latest_price(sym)
+                                        if price:
+                                            result = bot.portfolio.close_trade(trade.id, price, f"REANALYSIS: {reason}")
+                                            log.info("trade_reanalysis_closed",
+                                                     bot=bot.name, symbol=sym, action=trade.action,
+                                                     reason=reason, pnl=result.get("realized_pnl", 0))
+
+                        except Exception as sym_exc:
+                            log.debug("reanalysis_symbol_error", symbol=sym, error=str(sym_exc))
+
+                    log.info("trade_reanalysis_complete", symbols=len(symbols_to_check))
+                except Exception as exc:
+                    log.warning("trade_reanalysis_error", error=str(exc))
+
+        reanalysis_task = asyncio.create_task(_trade_reanalysis_loop())
+
         try:
             while True:
                 try:
@@ -279,3 +382,4 @@ class SignalRunner:
             watcher_task.cancel()
             outcome_task.cancel()
             paper_exit_task.cancel()
+            reanalysis_task.cancel()
