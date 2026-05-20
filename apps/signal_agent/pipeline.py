@@ -379,18 +379,45 @@ class SignalPipeline:
             except Exception as exc:
                 log.debug("symbol_bias_error", error=str(exc))
 
-            # Determine allowed direction: only trade WITH the bias
-            allowed_action = None  # None = NO_TRADE (conflicted)
-            if symbol_bias and symbol_bias.net_bias == "bullish":
-                allowed_action = SignalAction.BUY
-            elif symbol_bias and symbol_bias.net_bias == "bearish":
-                allowed_action = SignalAction.SELL
-            # neutral/conflicted = no trades for this symbol this cycle
+            # ── Market Participation Matrix ────────────────────────────
+            from libs.analysis.participation.matrix import get_participation
+            is_futures = self._trading_mode == "futures"
+            adx_val = indicators_result.adx if indicators_result and indicators_result.adx else 0
+
+            participation = get_participation(
+                net_bias=symbol_bias.net_bias if symbol_bias else "neutral",
+                bullish_score=symbol_bias.bullish_score if symbol_bias else 0,
+                bearish_score=symbol_bias.bearish_score if symbol_bias else 0,
+                conflict_score=symbol_bias.conflict_score if symbol_bias else 1.0,
+                adx=adx_val,
+            )
+
+            log.debug("participation_matrix",
+                       symbol=symbol, state=participation.market_state.value,
+                       spot=participation.spot_allowed,
+                       fut_long=participation.futures_long_allowed,
+                       fut_short=participation.futures_short_allowed,
+                       conf_mult=participation.confidence_multiplier,
+                       mode=self._trading_mode)
+
+            # Determine allowed direction based on mode + participation
+            allowed_action = None
+            if is_futures:
+                if participation.futures_long_allowed and symbol_bias and symbol_bias.net_bias == "bullish":
+                    allowed_action = SignalAction.BUY
+                elif participation.futures_short_allowed and symbol_bias and symbol_bias.net_bias == "bearish":
+                    allowed_action = SignalAction.SELL
+            else:
+                # SPOT / EQUITY: only BUY when allowed
+                if participation.spot_allowed and symbol_bias and symbol_bias.net_bias == "bullish":
+                    allowed_action = SignalAction.BUY
 
             if allowed_action is None:
-                log.debug("symbol_no_trade_bias_neutral", symbol=symbol,
+                log.debug("participation_blocked", symbol=symbol,
+                          state=participation.market_state.value,
                           bias=symbol_bias.net_bias if symbol_bias else "unknown",
-                          conflict=symbol_bias.conflict_score if symbol_bias else 0)
+                          reason=participation.reason,
+                          mode=self._trading_mode)
                 return outputs  # Skip all strategies for this symbol
 
             # ── 4d. Macro filters ────────────────────────────────────────

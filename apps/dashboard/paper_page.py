@@ -276,6 +276,16 @@ async def signal_preview() -> JSONResponse:
                 else:
                     readiness = "WAITING"
 
+                # Participation matrix
+                from libs.analysis.participation.matrix import get_participation
+                part = get_participation(
+                    net_bias=bias.net_bias,
+                    bullish_score=bias.bullish_score,
+                    bearish_score=bias.bearish_score,
+                    conflict_score=bias.conflict_score,
+                    adx=indicators.adx or 0,
+                )
+
                 previews.append({
                     "symbol": sym,
                     "bias": bias.net_bias,
@@ -289,6 +299,11 @@ async def signal_preview() -> JSONResponse:
                     "volume": _s(rel_vol),
                     "readiness": readiness,
                     "price": _s(last_close),
+                    "market_state": part.market_state.value,
+                    "spot_ok": part.spot_allowed,
+                    "fut_long_ok": part.futures_long_allowed,
+                    "fut_short_ok": part.futures_short_allowed,
+                    "part_reason": part.reason,
                 })
             except Exception:
                 continue
@@ -857,13 +872,13 @@ async def paper_dashboard() -> HTMLResponse:
     <table>
       <thead>
         <tr>
-          <th>Status</th><th>Symbol</th><th>Bias</th><th>Bull%</th><th>Bear%</th>
-          <th>Conflict</th><th>Regime</th><th>Structure</th><th>RSI</th><th>ADX</th>
-          <th>Vol</th><th>Price</th>
+          <th>Status</th><th>Symbol</th><th>Market State</th><th>SPOT</th><th>FUT L</th><th>FUT S</th>
+          <th>Bias</th><th>Bull%</th><th>Bear%</th>
+          <th>Conflict</th><th>RSI</th><th>ADX</th><th>Price</th>
         </tr>
       </thead>
       <tbody id="preview-body">
-        <tr><td colspan="12" class="empty">Click "Scan Now" to preview signals</td></tr>
+        <tr><td colspan="13" class="empty">Click "Scan Now" to preview signals</td></tr>
       </tbody>
     </table>
   </div>
@@ -1543,13 +1558,13 @@ function renderIndicatorPanel(data) {
 // ── Signal Preview ──────────────────────────────────────────────────────────
 async function loadPreview() {
   const tbody = document.getElementById('preview-body');
-  tbody.innerHTML = '<tr><td colspan="12" class="empty">Scanning 20 symbols...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="13" class="empty">Scanning 20 symbols...</td></tr>';
   try {
     const r = await fetch('/api/paper/preview');
     const d = await r.json();
     const previews = d.previews || [];
     if (!previews.length) {
-      tbody.innerHTML = '<tr><td colspan="12" class="empty">No symbols scanned</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="13" class="empty">No symbols scanned</td></tr>';
       return;
     }
     tbody.innerHTML = previews.map(p => {
@@ -1558,25 +1573,31 @@ async function loadPreview() {
       const statusClr = clrMap[p.readiness] || 'var(--muted)';
       const biasClr = p.bias === 'bullish' ? 'var(--green)' : p.bias === 'bearish' ? 'var(--red)' : 'var(--muted)';
       const biasLabel = p.bias === 'bullish' ? '▲ BULL' : p.bias === 'bearish' ? '▼ BEAR' : '— NEUTRAL';
-      const structClr = p.structure === 'bullish' ? 'var(--green)' : p.structure === 'bearish' ? 'var(--red)' : 'var(--muted)';
       const rsiClr = (p.rsi||50) <= 30 ? 'var(--green)' : (p.rsi||50) >= 70 ? 'var(--red)' : 'var(--text)';
-      return `<tr>
+
+      // Market state color
+      const ms = p.market_state || 'NEUTRAL';
+      const msClr = ms.includes('BULL') ? 'var(--green)' : ms.includes('BEAR') ? 'var(--red)' : ms === 'NEWS_LOCKDOWN' ? 'var(--yellow)' : 'var(--muted)';
+      const okBadge = (v) => v ? '<span style="color:var(--green);font-weight:bold">ON</span>' : '<span style="color:var(--muted)">OFF</span>';
+
+      return `<tr title="${p.part_reason || ''}">
         <td style="color:${statusClr};font-weight:bold">${statusIcon} ${p.readiness}</td>
         <td style="font-weight:bold;color:var(--bright);cursor:pointer" onclick="openChart('${p.symbol}',0,0,0,'${p.bias}','preview')">${p.symbol}</td>
+        <td style="color:${msClr};font-size:0.66rem;font-weight:600">${ms.replace('_',' ')}</td>
+        <td style="font-size:0.66rem">${okBadge(p.spot_ok)}</td>
+        <td style="font-size:0.66rem">${okBadge(p.fut_long_ok)}</td>
+        <td style="font-size:0.66rem">${okBadge(p.fut_short_ok)}</td>
         <td style="color:${biasClr};font-weight:bold">${biasLabel}</td>
         <td class="green">${((p.bullish||0)*100).toFixed(0)}%</td>
         <td class="red">${((p.bearish||0)*100).toFixed(0)}%</td>
         <td style="color:${p.conflict>0.8?'var(--red)':p.conflict>0.5?'var(--yellow)':'var(--green)'}">${((p.conflict||0)*100).toFixed(0)}%</td>
-        <td style="color:var(--muted);font-size:0.68rem">${p.regime}</td>
-        <td style="color:${structClr}">${p.structure}</td>
         <td style="color:${rsiClr}">${p.rsi||'—'}</td>
         <td>${p.adx||'—'}</td>
-        <td>${p.volume||'—'}x</td>
         <td>\$${p.price||'—'}</td>
       </tr>`;
     }).join('');
   } catch(e) {
-    tbody.innerHTML = '<tr><td colspan="12" class="empty">Scan failed</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="13" class="empty">Scan failed</td></tr>';
   }
 }
 
