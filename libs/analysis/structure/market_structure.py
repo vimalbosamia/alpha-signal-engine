@@ -17,6 +17,7 @@ CHoCH (Change of Character):
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import pandas as pd
@@ -43,6 +44,8 @@ class StructureEvent:
     price: float        # closing price that broke the structure
     broken_level: float  # the swing level that was broken
     explanation: str
+    bars_ago: int = 0           # how many bars since this event (relative to last bar)
+    decay_strength: float = 1.0  # decayed strength: 1.0 = fresh, 0.0 = expired
 
 
 @dataclass(frozen=True)
@@ -70,6 +73,11 @@ _DOWNTREND = "downtrend"
 
 # Minimum number of swing points needed before BOS/CHoCH detection is attempted.
 _MIN_SWING_POINTS: int = 2
+
+# Decay parameters for BOS/CHoCH event aging.
+_DECAY_PERIOD: int = 20   # half-life in bars — strength halves every 20 bars
+_EXPIRY_BARS: int = 50    # events older than this are completely dropped
+_STALE_THRESHOLD: float = 0.3  # below this decay_strength, event is considered stale
 
 
 def _normalize_trend(raw: str) -> str:
@@ -122,16 +130,19 @@ class MarketStructureAnalyzer:
 
         last_swing_high, last_swing_low = _extract_last_swings(swing_points)
 
-        events = _detect_events(df, swing_points, prior_trend)
+        raw_events = _detect_events(df, swing_points, prior_trend)
 
-        trend_bias = _determine_trend_bias(events, prior_trend)
-        strength = _compute_strength(swing_points, events)
-        explanation = _build_explanation(trend_bias, events, swing_points)
+        total_bars = len(df)
+        decayed_events = _apply_decay(raw_events, total_bars)
+
+        trend_bias = _determine_trend_bias(decayed_events, prior_trend, swing_points)
+        strength = _compute_strength(swing_points, decayed_events)
+        explanation = _build_explanation(trend_bias, decayed_events, swing_points)
 
         return StructureAnalysis(
             trend_bias=trend_bias,
             swing_points=swing_points,
-            events=events,
+            events=decayed_events,
             strength=round(strength, 4),
             explanation=explanation,
             last_swing_high=last_swing_high,
@@ -271,18 +282,61 @@ def _detect_events(
     return events
 
 
+def _apply_decay(
+    events: list[StructureEvent],
+    total_bars: int,
+) -> list[StructureEvent]:
+    """
+    Apply exponential decay to each event based on its age in bars.
+
+    Events older than _EXPIRY_BARS are completely dropped.
+    Remaining events get a decay_strength computed as:
+      exp(-bars_ago / _DECAY_PERIOD)
+    which gives 1.0 for a fresh event and approaches 0 as bars_ago grows.
+    """
+    decayed: list[StructureEvent] = []
+    for e in events:
+        bars_ago = total_bars - 1 - e.index
+        if bars_ago > _EXPIRY_BARS:
+            continue  # expired — drop entirely
+        decay = math.exp(-bars_ago / _DECAY_PERIOD)
+        decayed.append(
+            StructureEvent(
+                kind=e.kind,
+                direction=e.direction,
+                index=e.index,
+                price=e.price,
+                broken_level=e.broken_level,
+                explanation=e.explanation,
+                bars_ago=bars_ago,
+                decay_strength=round(decay, 4),
+            )
+        )
+    return decayed
+
+
 def _determine_trend_bias(
     events: list[StructureEvent],
     prior_trend: str,
+    swing_points: list[SwingPoint],
 ) -> str:
     """
     Determine the final trend bias:
-      1. Direction of the last BOS or CHoCH event (if any).
-      2. Falls back to prior_trend from classify_trend.
+      1. If all events are stale (decay_strength < _STALE_THRESHOLD), fall back
+         to classify_trend on the full swing point set.
+      2. Direction of the last non-stale BOS or CHoCH event (if any).
+      3. Falls back to prior_trend from classify_trend.
     """
-    if events:
-        return events[-1].direction
-    return prior_trend
+    if not events:
+        return prior_trend
+
+    # Check whether any event still has meaningful strength
+    fresh_events = [e for e in events if e.decay_strength >= _STALE_THRESHOLD]
+    if not fresh_events:
+        # All BOS/CHoCH events are stale — use swing-point trend as ground truth
+        return _normalize_trend(classify_trend(swing_points))
+
+    return fresh_events[-1].direction
 
 
 def _compute_strength(
@@ -295,7 +349,11 @@ def _compute_strength(
     Components:
       - Pattern consistency: proportion of swing-point labels that conform to
         the dominant trend (HH/HL for bullish, LH/LL for bearish).
-      - Event weight: bonus for each BOS (+0.05) and CHoCH (+0.10), capped.
+      - Average decay_strength of events: reflects recency. Stale events reduce
+        the strength contribution rather than inflating it artificially.
+
+    Formula: min(1.0, consistency * 0.6 + avg_decay * 0.4)
+    When there are no events, strength is purely from pattern consistency.
     """
     # "first" is the initial classification used by SwingPointDetector;
     # only consider labelled (non-first) points for strength computation.
@@ -312,13 +370,13 @@ def _compute_strength(
                  sum(1 for p in lows if p.classification == "LL")
     total = len(highs) + len(lows)
 
-    pattern_score = max(bull_count, bear_count) / total if total > 0 else 0.0
+    consistency = max(bull_count, bear_count) / total if total > 0 else 0.0
 
-    # Small bonus for BOS/CHoCH events (evidence of active structure breaks)
-    event_bonus = sum(0.05 if e.kind == "BOS" else 0.10 for e in events)
-    event_bonus = min(event_bonus, 0.30)  # cap bonus at 0.30
+    if events:
+        avg_decay = sum(e.decay_strength for e in events) / len(events)
+        return min(1.0, consistency * 0.6 + avg_decay * 0.4)
 
-    return min(pattern_score + event_bonus, 1.0)
+    return consistency
 
 
 def _build_explanation(

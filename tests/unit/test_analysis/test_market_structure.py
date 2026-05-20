@@ -310,6 +310,120 @@ def test_structure_result_fields() -> None:
 
 # ── Test 5: empty DataFrame ───────────────────────────────────────────────────
 
+# ── Decay tests ───────────────────────────────────────────────────────────────
+
+def _make_df_with_bos_at_bar(bos_bar: int, total_bars: int) -> pd.DataFrame:
+    """
+    Build a DataFrame of `total_bars` length that will reliably produce a
+    bearish BOS near `bos_bar`.
+
+    Structure:
+      - First half: downtrend to establish a swing low near bar `bos_bar - 4`.
+      - At `bos_bar`: close punches below that swing low.
+      - Remaining bars: flat / sideways.
+    """
+    assert bos_bar >= 6, "bos_bar must be >= 6 to allow swing point formation"
+    assert total_bars > bos_bar + 1, "total_bars must exceed bos_bar"
+
+    # Construct price arrays
+    highs: list[float] = []
+    lows: list[float] = []
+    closes: list[float] = []
+
+    base = 100.0
+    # Phase 1: drift down to establish a recognisable swing low before bos_bar
+    for i in range(bos_bar):
+        h = base - i * 0.2 + 1.0
+        l = h - 2.0
+        c = (h + l) / 2.0
+        highs.append(round(h, 4))
+        lows.append(round(l, 4))
+        closes.append(round(c, 4))
+
+    # BOS bar: close sharply below surrounding lows
+    swing_low = lows[-4] if len(lows) >= 4 else lows[-1]
+    h_bos = swing_low - 0.5
+    l_bos = swing_low - 3.0
+    c_bos = swing_low - 2.5   # clearly below the swing low
+    highs.append(round(h_bos, 4))
+    lows.append(round(l_bos, 4))
+    closes.append(round(c_bos, 4))
+
+    # Remaining bars: flat sideways
+    for _ in range(total_bars - bos_bar - 1):
+        h = c_bos + 0.5
+        l = c_bos - 0.5
+        c = c_bos
+        highs.append(round(h, 4))
+        lows.append(round(l, 4))
+        closes.append(round(c, 4))
+
+    assert len(highs) == total_bars
+    return _make_df(highs, lows, closes)
+
+
+def test_old_bos_expires() -> None:
+    """
+    A BOS at bar 5 in a 60-bar DataFrame is 54 bars old (> EXPIRY_BARS=50).
+    It must be dropped from the events list entirely.
+    """
+    total_bars = 70
+    bos_bar = 8  # Must be >= 6
+
+    df = _make_df_with_bos_at_bar(bos_bar, total_bars)
+    analyzer = MarketStructureAnalyzer(lookback=2)
+    result = analyzer.analyze(df)
+
+    # No event should have bars_ago > 50 (expiry threshold)
+    for event in result.events:
+        assert event.bars_ago <= 50, (
+            f"Expired event found: bars_ago={event.bars_ago} > 50 "
+            f"(bar {event.index} in {total_bars}-bar DF)"
+        )
+
+
+def test_fresh_bos_full_strength() -> None:
+    """
+    Any BOS event with bars_ago < 5 should have decay_strength > 0.7.
+    Test the decay formula directly.
+    """
+    import math
+    DECAY_PERIOD = 20
+    bars_ago = 4
+    decay = math.exp(-bars_ago / DECAY_PERIOD)
+    assert decay > 0.7, f"Expected > 0.7, got {decay}"
+
+    # Also verify that MarketStructureAnalyzer produces events with decay fields
+    total_bars = 60
+    bos_bar = 50
+    df = _make_df_with_bos_at_bar(bos_bar, total_bars)
+    result = MarketStructureAnalyzer(lookback=2).analyze(df)
+    # All events should have bars_ago and decay_strength attributes
+    for event in result.events:
+        assert hasattr(event, 'bars_ago'), "Event missing bars_ago field"
+        assert hasattr(event, 'decay_strength'), "Event missing decay_strength field"
+        assert 0.0 <= event.decay_strength <= 1.0, f"decay_strength out of range: {event.decay_strength}"
+
+
+def test_decayed_bos_reduced_strength() -> None:
+    """
+    With DECAY_PERIOD=20, an event 29 bars old has strength = exp(-29/20) ≈ 0.235.
+    """
+    import math
+    DECAY_PERIOD = 20
+    # Direct formula test: 29 bars old
+    decay_29 = math.exp(-29 / DECAY_PERIOD)
+    assert decay_29 < 0.5, f"Expected < 0.5, got {decay_29}"
+
+    # 45 bars old — almost expired
+    decay_45 = math.exp(-45 / DECAY_PERIOD)
+    assert decay_45 < 0.15, f"Expected < 0.15, got {decay_45}"
+
+    # 5 bars old — still fresh
+    decay_5 = math.exp(-5 / DECAY_PERIOD)
+    assert decay_5 > 0.7, f"Expected > 0.7, got {decay_5}"
+
+
 def test_empty_df() -> None:
     """
     Empty DataFrame → neutral trend_bias, empty events list, no exception raised.

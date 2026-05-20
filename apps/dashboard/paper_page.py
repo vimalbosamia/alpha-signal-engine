@@ -1298,18 +1298,46 @@ function renderIndicatorPanel(data) {
   const struct = data.structure;
   const regime = data.regime;
 
-  const biasClass = bias.net === 'bullish' ? 'bullish' : bias.net === 'bearish' ? 'bearish' : 'neutral';
+  // ── Entry vs Current bias conflict detection ──────────────────────────────
+  const pos = (data.positions || []).find(p => p.symbol === data.symbol);
+  const entryBias = pos ? pos.entry_bias : null;
+  const entrySide = pos ? pos.action : null;
+
+  let biasStatus = 'no_position';
+  let statusColor = 'var(--muted)';
+  let statusLabel = 'No Position';
+
+  if (entryBias && entrySide) {
+    const currentBias = data.bias.net;
+    if (entrySide === 'BUY' && currentBias === 'bullish') {
+      biasStatus = 'aligned'; statusColor = 'var(--green)'; statusLabel = '✓ ALIGNED';
+    } else if (entrySide === 'SELL' && currentBias === 'bearish') {
+      biasStatus = 'aligned'; statusColor = 'var(--green)'; statusLabel = '✓ ALIGNED';
+    } else if (currentBias === 'neutral') {
+      biasStatus = 'warning'; statusColor = 'var(--yellow)'; statusLabel = '⚠ WARNING — bias now neutral';
+    } else {
+      biasStatus = 'conflict'; statusColor = 'var(--red)'; statusLabel = '🚨 EXIT NOW — bias flipped';
+    }
+  }
+
+  const entrySideColor = entrySide === 'BUY' ? 'var(--green)' : entrySide === 'SELL' ? 'var(--red)' : 'var(--muted)';
+  const entryBiasColor = entryBias === 'bullish' ? 'var(--green)' : entryBias === 'bearish' ? 'var(--red)' : 'var(--muted)';
+  const currentBiasColor = bias.net === 'bullish' ? 'var(--green)' : bias.net === 'bearish' ? 'var(--red)' : 'var(--muted)';
+  const bullPct = bias.bullish != null ? (bias.bullish * 100).toFixed(0) : '—';
+  const bearPct = bias.bearish != null ? (bias.bearish * 100).toFixed(0) : '—';
+
   const rsiColor = (ind.rsi || 50) <= 30 ? 'var(--green)' : (ind.rsi || 50) >= 70 ? 'var(--red)' : 'var(--text)';
   const macdColor = (ind.macd_histogram || 0) > 0 ? 'var(--green)' : 'var(--red)';
 
   document.getElementById('chart-indicators').innerHTML = `
     <div class="ind-section">
-      <h4>Direction Bias</h4>
-      <div style="text-align:center;margin-bottom:8px">
-        <span class="bias-badge ${biasClass}">${bias.net.toUpperCase()}</span>
-      </div>
-      <div class="ind-row"><span class="ind-label">Bullish</span><span class="ind-val green">${(bias.bullish*100).toFixed(0)}%</span></div>
-      <div class="ind-row"><span class="ind-label">Bearish</span><span class="ind-val red">${(bias.bearish*100).toFixed(0)}%</span></div>
+      <h4>Trade State</h4>
+      <div class="ind-row"><span class="ind-label">Entry Side</span><span class="ind-val" style="color:${entrySideColor}">${entrySide || '—'}</span></div>
+      <div class="ind-row"><span class="ind-label">Entry Bias</span><span class="ind-val" style="color:${entryBiasColor}">${entryBias ? entryBias.toUpperCase() : '—'}</span></div>
+      <div class="ind-row"><span class="ind-label">Current Bias</span><span class="ind-val" style="color:${currentBiasColor}">${bias.net.toUpperCase()}</span></div>
+      <div class="ind-row"><span class="ind-label">Bull Score</span><span class="ind-val green">${bullPct}%</span></div>
+      <div class="ind-row"><span class="ind-label">Bear Score</span><span class="ind-val red">${bearPct}%</span></div>
+      <div style="text-align:center;margin:8px 0;padding:6px;border-radius:6px;background:rgba(0,0,0,0.3);font-weight:bold;color:${statusColor}">${statusLabel}</div>
     </div>
 
     <div class="ind-section">
