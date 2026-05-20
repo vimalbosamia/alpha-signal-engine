@@ -79,10 +79,10 @@ class BullBearBiasEngine:
     """
 
     # ── Factor weights ────────────────────────────────────────────────────────
-    WEIGHT_INDICATORS: float = 0.35
-    WEIGHT_STRUCTURE: float  = 0.25
+    WEIGHT_INDICATORS: float = 0.40  # Most current — RSI, EMA, MACD
+    WEIGHT_STRUCTURE: float  = 0.15  # Can lag — BOS events persist after recovery
     WEIGHT_CANDLES: float    = 0.05
-    WEIGHT_REGIME: float     = 0.10
+    WEIGHT_REGIME: float     = 0.15  # EMA-based trend
     WEIGHT_VOLUME: float     = 0.10
     WEIGHT_HTF: float        = 0.15
 
@@ -151,12 +151,8 @@ class BullBearBiasEngine:
         bull += inp.indicator_bullish * self.WEIGHT_INDICATORS
         bear += inp.indicator_bearish * self.WEIGHT_INDICATORS
 
-        # 2. Structure (25%, boosted to 40% when strong conviction)
-        # When structure has high strength (>0.7), it's the most reliable
-        # directional signal — recent BOS/CHoCH events are leading indicators
+        # 2. Structure (15% — can lag after recovery, don't over-weight)
         struct_weight = self.WEIGHT_STRUCTURE
-        if inp.structure_strength > 0.6:
-            struct_weight = 0.35  # Boost — structure has conviction
         if inp.structure_bias == "bullish":
             bull += inp.structure_strength * struct_weight
         elif inp.structure_bias == "bearish":
