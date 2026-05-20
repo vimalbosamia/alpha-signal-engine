@@ -72,12 +72,28 @@ from libs.analysis.macro.sentiment import SentimentFilter
 from libs.analysis.macro.correlation import MarketCorrelationFilter
 from libs.analysis.macro.global_risk import GlobalRiskEngine
 from libs.analysis.macro.derivatives import DerivativesPressureEngine
+from libs.analysis.macro.central_bank import CentralBankEngine
+from libs.analysis.macro.sector_rotation import SectorRotationEngine
+from libs.analysis.regime.strategy_matrix import RegimeStrategyMatrix
+from libs.analysis.filters.symbol_eligibility import SymbolEligibilityEngine
+from libs.analysis.filters.correlation_reducer import FeatureCorrelationReducer
+from libs.analysis.structure.wyckoff import WyckoffDetector
+from libs.analysis.structure.order_blocks import OrderBlockDetector
+from libs.analysis.structure.fair_value_gap import FVGDetector
 from libs.risk.cost_model import CostModelEngine
+from libs.risk.throttle import RiskThrottleEngine
+from libs.risk.trailing_stop import TrailingStopManager
+from libs.risk.basket import BasketExpectancyEngine
 from libs.signals.confluence.engine import ConfluenceEngine
 from libs.signals.output.emitter import SignalEmitter
+from libs.signals.explainability import ExplainabilityEngine
+from libs.signals.grading.engine import TradeDecisionEngine, GradingInput
+from libs.signals.calibration.engine import ConfidenceCalibrator
 from libs.risk.engine import RiskEngine
+from libs.validation.leakage_guard import LeakageGuard
 from libs.strategies.base.strategy import BaseStrategy
 from libs.monitoring.outcome_tracker import is_strategy_muted
+from libs.data.providers.cache import ProviderCache
 from libs.monitoring.portfolio_guard import PortfolioGuard, GuardConfig, get_portfolio_guard
 from libs.audit.audit_log import AuditLog, AuditEvent
 from libs.monitoring.metrics import MetricsCollector
@@ -155,6 +171,18 @@ class SignalPipeline:
         self._lookback = candle_lookback
         self._htf_multiplier = htf_multiplier
 
+        # Wired engines (shared instances)
+        self._regime_matrix = RegimeStrategyMatrix()
+        self._symbol_filter = SymbolEligibilityEngine()
+        self._correlation_reducer = FeatureCorrelationReducer()
+        self._risk_throttle = RiskThrottleEngine()
+        self._trailing_stop = TrailingStopManager()
+        self._leakage_guard = LeakageGuard()
+        self._explainability = ExplainabilityEngine()
+        self._wyckoff = WyckoffDetector()
+        self._ob_detector = OrderBlockDetector()
+        self._fvg_detector = FVGDetector()
+
     async def run_once(
         self,
         symbol: str,
@@ -208,6 +236,33 @@ class SignalPipeline:
                 })
                 log.warning("pipeline_data_blocked", symbol=symbol, errors=quality.errors)
                 return []
+
+            # ── 3b. Leakage guard — check indicator warmup ─────────────
+            if not self._leakage_guard.is_safe_for_trading(len(df), ["ema_20", "rsi", "atr"]):
+                log.debug("leakage_guard_skip", symbol=symbol, bars=len(df))
+                return outputs
+
+            # ── 3c. Symbol eligibility — filter junk symbols ─────────
+            try:
+                vol_24h = float(df["volume"].sum()) if "volume" in df else 0
+                spread_pct = 0.1  # estimate — would need order book for real
+                atr_pct = 0.0
+                if len(df) > 14:
+                    atr_val = (df["high"] - df["low"]).rolling(14).mean().iloc[-1]
+                    close_val = df["close"].iloc[-1]
+                    atr_pct = float(atr_val / close_val * 100) if close_val > 0 else 0
+                eligibility = self._symbol_filter.check(symbol, vol_24h, spread_pct, atr_pct)
+                if not eligibility.is_eligible:
+                    log.debug("symbol_ineligible", symbol=symbol, reason=eligibility.reason)
+                    return outputs
+            except Exception:
+                pass  # Non-fatal — proceed if filter fails
+
+            # ── 3d. Risk throttle — check if trading is halted ───────
+            throttle = self._risk_throttle.get_state()
+            if throttle.throttle_level == "halted":
+                log.info("risk_throttle_halted", symbol=symbol, reason=throttle.reason)
+                return outputs
 
             # ── 4. Context engines ────────────────────────────────────────
             structure = self._structure.analyze(df)
@@ -263,6 +318,28 @@ class SignalPipeline:
                     elif "down" in tv.lower():
                         htf_bias_str = "bearish"
 
+            macro_confidence_adj = 0.0  # accumulated across all macro filters
+
+            # ── 4b2. Smart money analysis ────────────────────────────────
+            wyckoff_phase = None
+            order_blocks = []
+            fvg_zones = []
+            try:
+                wyckoff_phase = self._wyckoff.detect(df)
+                order_blocks = self._ob_detector.detect(df)
+                fvg_zones = self._fvg_detector.detect(df)
+            except Exception:
+                pass
+
+            # ── 4b3. Macro: CentralBank + SectorRotation ────────────────
+            try:
+                cb = CentralBankEngine().assess()
+                macro_confidence_adj += cb.confidence_adjustment
+                sr = SectorRotationEngine().assess(symbol, asset_class.value)
+                macro_confidence_adj += sr.confidence_adjustment
+            except Exception:
+                pass
+
             # ── 4c. Compute directional bias ONCE per symbol ────────────
             # Run all 40 pattern detectors once (not per-strategy)
             pattern_results = [det.detect(df) for det in DEFAULT_DETECTORS]
@@ -315,7 +392,6 @@ class SignalPipeline:
                 return outputs  # Skip all strategies for this symbol
 
             # ── 4d. Macro filters ────────────────────────────────────────
-            macro_confidence_adj = 0.0
             try:
                 # News impact — block during FOMC/CPI/NFP
                 news = NewsImpactEngine().assess(symbol, asset_class.value)
@@ -376,6 +452,14 @@ class SignalPipeline:
                     continue
 
                 if candidate is None:
+                    continue
+
+                # Regime-strategy matrix: check if strategy is allowed in this regime
+                regime_val = regime.regime.value if hasattr(regime.regime, "value") else str(regime.regime)
+                regime_check = self._regime_matrix.check(strategy.name, regime_val)
+                if not regime_check.is_allowed:
+                    log.debug("regime_matrix_blocked", symbol=symbol,
+                              strategy=strategy.name, regime=regime_val)
                     continue
 
                 # Direction lock: reject if strategy proposes opposite to bias
@@ -497,6 +581,14 @@ class SignalPipeline:
                     except Exception:
                         pass
 
+                # Apply throttle confidence penalty
+                if throttle.confidence_penalty != 0:
+                    try:
+                        adj = max(0.0, min(1.0, breakdown.weighted_total + throttle.confidence_penalty))
+                        breakdown = breakdown.model_copy(update={"weighted_total": adj})
+                    except Exception:
+                        pass
+
                 # Emit signal
                 output = self._emitter.emit(candidate, breakdown)
 
@@ -509,6 +601,21 @@ class SignalPipeline:
                         })
                     except Exception:
                         pass
+
+                # Build explanation tree
+                try:
+                    explanation = self._explainability.build(
+                        bias_result=symbol_bias, indicator_bias=indicator_bias,
+                        structure=deep_structure, regime=regime,
+                        grading_result=grading_result, strategy_name=strategy.name,
+                        action=output.action.value, signal_id=str(output.signal_id),
+                        symbol=symbol,
+                    )
+                    log.debug("signal_explanation", symbol=symbol,
+                              dominant=explanation.dominant_factors[:2],
+                              trace=explanation.decision_trace[:3])
+                except Exception:
+                    pass
 
                 # ── Paper trading: dispatch with original proposed action ────
                 # Paper bots get the signal with the strategy's proposed action,

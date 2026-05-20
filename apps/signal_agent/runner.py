@@ -371,6 +371,67 @@ class SignalRunner:
 
         reanalysis_task = asyncio.create_task(_trade_reanalysis_loop())
 
+        # Periodic validation loop — runs Monte Carlo, VaR, walk-forward every 30 min
+        async def _validation_loop():
+            while True:
+                await asyncio.sleep(1800)  # Every 30 minutes
+                try:
+                    from libs.validation.monte_carlo import MonteCarloEngine
+                    from libs.risk.var import VaREngine
+                    from libs.validation.walk_forward import WalkForwardValidator
+                    from libs.learning.tracker import PerformanceTracker
+                    from libs.learning.model_registry import ModelVersionRegistry
+
+                    # Collect trade returns from paper engine
+                    closed = self._paper_engine.get_closed_trades(limit=500)
+                    if len(closed) < 10:
+                        continue
+
+                    returns = [t.get("pnl_pct", 0) for t in closed]
+
+                    # Monte Carlo robustness check
+                    mc = MonteCarloEngine().simulate(returns)
+                    log.info("validation_monte_carlo",
+                             robust=mc.is_robust, prob_profit=round(mc.probability_of_profit, 2),
+                             median_return=round(mc.median_return_pct, 2))
+
+                    # VaR calculation
+                    daily_returns = returns[-30:] if len(returns) >= 30 else returns
+                    var = VaREngine().calculate(daily_returns)
+                    log.info("validation_var",
+                             var_95=round(var.var_95, 2), cvar_95=round(var.cvar_95, 2),
+                             acceptable=var.is_acceptable)
+
+                    # Walk-forward per strategy
+                    strategy_outcomes: dict[str, list[bool]] = {}
+                    for t in closed:
+                        strat = t.get("strategy_name", "unknown")
+                        won = t.get("realized_pnl", 0) > 0
+                        strategy_outcomes.setdefault(strat, []).append(won)
+
+                    validator = WalkForwardValidator()
+                    for strat, outcomes in strategy_outcomes.items():
+                        if len(outcomes) >= 20:
+                            result = validator.validate(strat, outcomes)
+                            log.info("validation_walkforward",
+                                     strategy=strat, status=result.validation_status,
+                                     cap=result.confidence_cap)
+
+                    # Track performance per strategy
+                    tracker = PerformanceTracker()
+                    for t in closed:
+                        tracker.record_outcome(
+                            t.get("strategy_name", "unknown"), "strategy",
+                            won=t.get("realized_pnl", 0) > 0,
+                            pnl=t.get("realized_pnl", 0),
+                        )
+
+                    log.info("validation_loop_complete", trades=len(closed))
+                except Exception as exc:
+                    log.debug("validation_loop_error", error=str(exc))
+
+        validation_task = asyncio.create_task(_validation_loop())
+
         try:
             while True:
                 try:
@@ -383,3 +444,4 @@ class SignalRunner:
             outcome_task.cancel()
             paper_exit_task.cancel()
             reanalysis_task.cancel()
+            validation_task.cancel()
