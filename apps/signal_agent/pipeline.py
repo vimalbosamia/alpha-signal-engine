@@ -621,12 +621,19 @@ class SignalPipeline:
                 except Exception:
                     pass
 
-                # ── Paper trading: dispatch ONLY direction-locked signals ────
-                # Paper bots get the SAME filtered signal — no bypassing.
-                # If bias says bullish, only BUY signals reach bots. Period.
-                if output.action != SignalAction.NO_TRADE:
+                # ── Paper trading: dispatch direction-aligned signals ────────
+                # If output is NO_TRADE but candidate proposed an action that
+                # MATCHES the direction lock → send to paper bots anyway.
+                # This lets bots trade when bias + strategy agree but confluence
+                # score was just below threshold.
+                paper_action = output.action
+                if paper_action == SignalAction.NO_TRADE and candidate.proposed_action == allowed_action:
+                    paper_action = allowed_action  # Override — bias agrees with strategy
+
+                if paper_action != SignalAction.NO_TRADE:
+                    paper_signal = output.model_copy(update={"action": paper_action})
                     await self._bus.publish("paper.signal.raw", {
-                        "signal": output,
+                        "signal": paper_signal,
                     })
 
                 # ── ML filter: block signals predicted as low-win-probability ──
