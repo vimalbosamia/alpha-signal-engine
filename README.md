@@ -1,8 +1,52 @@
 # AI Trading Signal Agent
 
-A production-grade, **signal-only** AI trading agent for US stocks and crypto. It analyzes market data, detects candlestick patterns, scores confluence across multiple technical signals, and emits structured BUY/SELL/NO_TRADE recommendations.
+Institutional-grade trading signal intelligence engine with 6 competing hedge fund bots, 27 strategies, 40 pattern detectors, and real-time paper trading dashboard.
 
-**It never places, modifies, or cancels orders.** All output is signals and analytics only.
+**Signal-only system — NEVER places real trades.**
+
+## Quick Start
+
+```bash
+# 1. Install dependencies
+uv sync
+
+# 2. Configure environment
+cp .env.example .env
+# Edit .env with your API keys (Alpaca for stocks, Binance needs no key)
+
+# 3. Start server
+uv run python -m apps.signal_agent.main serve
+
+# 4. Open dashboard
+open http://localhost:8000/paper
+```
+
+## Server Commands
+
+```bash
+# Start server (default: 15m timeframe, 60s scan interval)
+uv run python -m apps.signal_agent.main serve
+
+# Start with custom settings
+uv run python -m apps.signal_agent.main serve --timeframe 5m --interval 30 --port 8000
+
+# Restart server (kill existing + start fresh)
+lsof -ti :8000 | xargs kill -9; sleep 2; uv run python -m apps.signal_agent.main serve
+
+# Reset paper trading to $10K
+curl -X POST http://localhost:8000/api/paper/reset
+
+# Run tests
+uv run python -m pytest tests/ -q
+```
+
+## Dashboard URLs
+
+| URL | Description |
+|-----|-------------|
+| http://localhost:8000 | Main dashboard (signals + paper trading embedded) |
+| http://localhost:8000/paper | Full paper trading view (new design) |
+| http://localhost:8000/docs | API documentation (Swagger) |
 
 ---
 
