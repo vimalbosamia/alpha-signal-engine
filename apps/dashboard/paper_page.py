@@ -7,6 +7,8 @@ The engine is injected at runtime via set_paper_engine() by the runner.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, JSONResponse
 
