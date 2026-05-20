@@ -563,10 +563,9 @@ async def paper_dashboard() -> HTMLResponse:
   <div class="panel">
     <div class="panel-header">
       <h2>Equity Curve</h2>
+      <button class="btn-sm" onclick="loadEquity()">Refresh</button>
     </div>
-    <div class="equity-placeholder" id="equity-placeholder">
-      Chart loads after first equity snapshot (5 min)
-    </div>
+    <div id="equity-container" style="height:200px;background:#0a0e17;"></div>
   </div>
 
   <!-- Open Positions -->
@@ -1137,9 +1136,63 @@ function renderIndicatorPanel(data) {
   `;
 }
 
+// ── Equity Curve ────────────────────────────────────────────────────────────
+let equityChart = null;
+let equityLineSeries = null;
+
+async function loadEquity() {
+  try {
+    const r = await fetch('/api/paper/equity');
+    const data = await r.json();
+    const curve = Array.isArray(data) ? data : (data.curve || []);
+    if (!curve.length) return;
+
+    const container = document.getElementById('equity-container');
+    if (!equityChart) {
+      equityChart = LightweightCharts.createChart(container, {
+        width: container.clientWidth, height: 200,
+        layout: { background: { color: '#0a0e17' }, textColor: '#c9d1d9' },
+        grid: { vertLines: { color: '#1c2128' }, horzLines: { color: '#1c2128' } },
+        timeScale: { timeVisible: true },
+        rightPriceScale: { borderColor: '#30363d' },
+      });
+      equityLineSeries = equityChart.addAreaSeries({
+        topColor: 'rgba(63,185,80,0.4)', bottomColor: 'rgba(63,185,80,0.0)',
+        lineColor: '#3fb950', lineWidth: 2,
+      });
+      // Add $10K baseline
+      equityLineSeries.createPriceLine({
+        price: 10000, color: '#8b949e', lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.Dashed,
+        axisLabelVisible: true, title: 'Start',
+      });
+    }
+
+    const points = curve.map(p => {
+      const ts = typeof p.timestamp === 'string' ? Math.floor(new Date(p.timestamp).getTime() / 1000) : p.timestamp;
+      return { time: ts, value: p.total_balance };
+    }).filter(p => p.time && p.value);
+
+    if (points.length) {
+      equityLineSeries.setData(points);
+      // Color based on profit/loss
+      const latest = points[points.length - 1].value;
+      const clr = latest >= 10000 ? '#3fb950' : '#f85149';
+      equityLineSeries.applyOptions({
+        topColor: latest >= 10000 ? 'rgba(63,185,80,0.4)' : 'rgba(248,81,73,0.4)',
+        bottomColor: latest >= 10000 ? 'rgba(63,185,80,0.0)' : 'rgba(248,81,73,0.0)',
+        lineColor: clr,
+      });
+      equityChart.timeScale().fitContent();
+    }
+  } catch(e) { console.error('equity error', e); }
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 refreshAll();
+loadEquity();
 setInterval(refreshAll, 5000);
+setInterval(loadEquity, 10000);  // Update equity every 10s
 </script>
 
 <!-- Chart Modal Overlay -->

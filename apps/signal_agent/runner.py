@@ -259,6 +259,9 @@ class SignalRunner:
                             self._paper_engine.snapshot_equity(prices)
                         log.debug("paper_exit_tick", positions=len(positions),
                                   prices_fetched=len(prices))
+                    else:
+                        # No positions — still snapshot balance for equity curve
+                        self._paper_engine.snapshot_equity({})
                 except Exception as exc:
                     log.warning("paper_exit_loop_error", error=str(exc))
                 await asyncio.sleep(10)  # Check every 10s for fast exits
