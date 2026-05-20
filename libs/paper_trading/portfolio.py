@@ -252,8 +252,8 @@ class PaperPortfolio:
             "pnl": net_pnl,
             "return_pct": return_pct,
             "status": status,
-            "opened_at": trade.opened_at,
-            "closed_at": closed_at,
+            "opened_at": trade.opened_at.isoformat(),
+            "closed_at": closed_at.isoformat(),
             "strategy_name": trade.strategy_name,
             "signal_id": trade.signal_id,
         }

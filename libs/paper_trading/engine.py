@@ -191,7 +191,7 @@ class PaperTradingEngine:
             all_closed.extend(bot.portfolio.closed_trades)
 
         all_closed.sort(
-            key=lambda t: t.get("closed_at", datetime.min.replace(tzinfo=timezone.utc)),
+            key=lambda t: str(t.get("closed_at", "")),
             reverse=True,
         )
         return all_closed[:limit]
