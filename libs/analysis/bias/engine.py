@@ -35,9 +35,9 @@ class BiasInput:
     candle_bearish_count: int   # number of bearish candle signals
     candle_total: int           # total candles evaluated (denominator)
     regime_supports_direction: bool  # does the current regime favour a trade?
-    adx: float = 0.0           # ADX trend strength (0-100). <20 = no trend
     volume_confirms: bool       # does volume confirm the dominant direction?
     htf_bias: str               # "bullish" | "bearish" | "neutral"
+    adx: float = 0.0           # ADX trend strength (0-100). <20 = no trend
 
 
 @dataclass(frozen=True)
