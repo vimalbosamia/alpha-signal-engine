@@ -242,21 +242,23 @@ class SignalPipeline:
                 log.debug("leakage_guard_skip", symbol=symbol, bars=len(df))
                 return outputs
 
-            # ── 3c. Symbol eligibility — filter junk symbols ─────────
+            # ── 3c. Symbol eligibility — volatility check only ─────────
+            # Volume filter disabled: candle volume != 24h USD volume
+            # Real volume filtering requires exchange API (ticker endpoint)
             try:
-                vol_24h = float(df["volume"].sum()) if "volume" in df else 0
-                spread_pct = 0.1  # estimate — would need order book for real
                 atr_pct = 0.0
                 if len(df) > 14:
                     atr_val = (df["high"] - df["low"]).rolling(14).mean().iloc[-1]
                     close_val = df["close"].iloc[-1]
                     atr_pct = float(atr_val / close_val * 100) if close_val > 0 else 0
-                eligibility = self._symbol_filter.check(symbol, vol_24h, spread_pct, atr_pct)
-                if not eligibility.is_eligible:
-                    log.debug("symbol_ineligible", symbol=symbol, reason=eligibility.reason)
+                if atr_pct > 15.0:
+                    log.debug("symbol_too_volatile", symbol=symbol, atr_pct=round(atr_pct, 2))
+                    return outputs
+                if atr_pct < 0.05:
+                    log.debug("symbol_dead_market", symbol=symbol, atr_pct=round(atr_pct, 2))
                     return outputs
             except Exception:
-                pass  # Non-fatal — proceed if filter fails
+                pass
 
             # ── 3d. Risk throttle — check if trading is halted ───────
             throttle = self._risk_throttle.get_state()
