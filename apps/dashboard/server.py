@@ -290,7 +290,7 @@ async def manual_scan(
 
 # ── Single-page HTML Dashboard ────────────────────────────────────────────────
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/signals", response_class=HTMLResponse)  # Old dashboard moved to /signals
 async def dashboard(request: Request) -> HTMLResponse:
     settings = get_settings()
     crypto_symbols = settings.signal.crypto_symbols
