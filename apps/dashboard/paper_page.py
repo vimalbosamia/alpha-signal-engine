@@ -889,17 +889,21 @@ async def paper_dashboard() -> HTMLResponse:
           <tr>
             <th>Bot</th>
             <th>Symbol</th>
+            <th>Mode</th>
             <th>Side</th>
+            <th>Intent</th>
+            <th>Direction</th>
             <th>Entry</th>
             <th>Live Price</th>
             <th>P&L</th>
             <th>P&L%</th>
             <th>Size</th>
+            <th>Leverage</th>
+            <th>Entry Bias</th>
+            <th>Bias Status</th>
             <th>Stop</th>
             <th>TP1</th>
             <th>Strategy</th>
-            <th>Entry Bias</th>
-            <th>Mode</th>
             <th>Since</th>
           </tr>
         </thead>
@@ -1109,20 +1113,46 @@ function renderPositions(positions) {
     const pnlClr = pnl >= 0 ? 'var(--green)' : 'var(--red)';
     const pnlSign = pnl >= 0 ? '+' : '';
     const livePrice = p.live_price ? fmt(p.live_price, 4) : '<span style="color:var(--muted)">—</span>';
+
+    // Market mode display
+    const mode = (p.market_mode || 'SPOT').toUpperCase();
+    const modeClr = mode === 'FUTURES' ? 'var(--yellow)' : 'var(--cyan)';
+    const modeLabel = mode === 'FUTURES' ? 'FUTURES' : 'SPOT';
+
+    // Intent + Direction
+    const intent = p.position_intent || 'OPEN_LONG';
+    const intentClr = intent.startsWith('OPEN') ? 'var(--green)' : intent.startsWith('CLOSE') ? 'var(--red)' : 'var(--muted)';
+    const dir = p.direction || 'LONG';
+    const dirClr = dir === 'LONG' ? 'var(--green)' : dir === 'SHORT' ? 'var(--red)' : 'var(--muted)';
+
+    // Leverage display
+    const lev = p.leverage || 1;
+    const levLabel = mode === 'FUTURES' ? lev + 'x' : '1x';
+
+    // Bias status
+    const biasStatus = p.bias_status || 'unknown';
+    const bsClr = biasStatus === 'ALIGNED' ? 'var(--green)' : biasStatus === 'WARNING' ? 'var(--yellow)' : biasStatus === 'CONFLICT' || biasStatus === 'EXIT' ? 'var(--red)' : 'var(--muted)';
+
+    const entryBiasClr = p.entry_bias === 'bullish' ? 'var(--green)' : p.entry_bias === 'bearish' ? 'var(--red)' : 'var(--muted)';
+
     return `<tr style="cursor:pointer" onclick="openChart('${p.symbol}',${p.entry_price},${p.stop_loss||0},${p.take_profit_1||0},'${p.action}','${p.strategy_name||""}')" title="Click to view chart">
       <td style="color:var(--blue)">${p.bot_name ?? '—'}</td>
-      <td style="font-weight:bold;color:var(--bright);cursor:pointer">${p.symbol ?? '—'}</td>
+      <td style="font-weight:bold;color:var(--bright)">${p.symbol ?? '—'}</td>
+      <td style="color:${modeClr};font-weight:600;font-size:0.68rem">${modeLabel}</td>
       <td style="color:${sideClr};font-weight:bold">${sideLabel}</td>
+      <td style="color:${intentClr};font-size:0.66rem;font-weight:600">${intent}</td>
+      <td style="color:${dirClr};font-weight:bold">${dir}</td>
       <td>${fmt(p.entry_price, 4)}</td>
       <td style="font-weight:bold">${livePrice}</td>
       <td style="color:${pnlClr};font-weight:bold">${pnlSign}$${fmt(pnl, 2)}</td>
       <td style="color:${pnlClr}">${pnlSign}${fmt(pnlPct, 2)}%</td>
       <td style="color:var(--muted)">$${fmt(p.position_size_usd, 2)}</td>
+      <td style="color:${mode === 'FUTURES' ? 'var(--yellow)' : 'var(--muted)'};font-weight:bold">${levLabel}</td>
+      <td style="font-size:0.68rem;color:${entryBiasClr}">${(p.entry_bias||'?').toUpperCase()}</td>
+      <td style="font-size:0.68rem;font-weight:bold;color:${bsClr}">${biasStatus.toUpperCase()}</td>
       <td style="color:var(--red)">${fmt(p.stop_loss, 4)}</td>
       <td style="color:var(--green)">${fmt(p.take_profit_1, 4)}</td>
-      <td style="color:var(--muted);font-size:0.68rem">${p.strategy_name ?? '—'}</td>
-      <td style="font-size:0.68rem"><span style="color:${p.entry_bias==='bullish'?'var(--green)':p.entry_bias==='bearish'?'var(--red)':'var(--muted)'}">${(p.entry_bias||'?').toUpperCase()}</span></td>
-      <td style="font-size:0.68rem">${p.trading_mode === 'futures' || (p.trading_mode||'').includes('futures') ? '<span style="color:var(--yellow);font-weight:bold">⚡ ' + (p.leverage||1) + 'x</span>' : '<span style="color:var(--muted)">SPOT</span>'}</td>
+      <td style="color:var(--muted);font-size:0.66rem">${p.strategy_name ?? '—'}</td>
       <td style="color:var(--muted)">${elapsed(p.opened_at)} ago</td>
     </tr>`;
   }).join('');

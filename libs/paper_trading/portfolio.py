@@ -45,6 +45,20 @@ class VirtualTrade:
     liquidation_price: float = 0.0     # estimated liquidation (futures only)
     bias_flip_count: int = 0           # how many times current bias disagreed
 
+    # ── Spot/Futures separation fields (document 4) ──
+    market_mode: str = "SPOT"          # "SPOT" | "FUTURES"
+    position_intent: str = "OPEN_LONG" # OPEN_LONG | CLOSE_LONG | OPEN_SHORT | CLOSE_SHORT
+    direction: str = "LONG"            # LONG | SHORT | FLAT
+    margin_mode: Optional[str] = None  # "isolated" | "cross" (futures only)
+    margin_used: float = 0.0           # margin committed (futures)
+    notional_size: float = 0.0         # position_size_usd * leverage
+    liquidation_buffer_percent: float = 0.0  # distance from entry to liquidation
+    funding_rate_at_entry: Optional[float] = None  # funding rate snapshot
+    current_bias: str = "unknown"      # live bias for conflict detection
+    bias_status: str = "unknown"       # ALIGNED | WARNING | CONFLICT | EXIT
+    exit_reason: Optional[str] = None  # reason for exit if closed
+    risk_rejection_reason: Optional[str] = None  # if rejected, why
+
 
 # ── Portfolio class ───────────────────────────────────────────────────────────
 
@@ -130,6 +144,12 @@ class PaperPortfolio:
         entry_regime: str = "unknown",
         trading_mode: str = "spot",
         leverage: float = 1.0,
+        market_mode: str = "SPOT",
+        position_intent: str = "OPEN_LONG",
+        direction: str = "LONG",
+        margin_mode: Optional[str] = None,
+        notional_size: float = 0.0,
+        liquidation_buffer_percent: float = 0.0,
     ) -> Optional[str]:
         """
         Open a new virtual trade.
@@ -146,6 +166,7 @@ class PaperPortfolio:
             return None
 
         trade_id = str(uuid.uuid4())
+        liq_price = self._calc_liquidation(entry_price, leverage, action, trading_mode)
         trade = VirtualTrade(
             id=trade_id,
             bot_name=self._bot_name,
@@ -166,7 +187,13 @@ class PaperPortfolio:
             entry_regime=entry_regime,
             trading_mode=trading_mode,
             leverage=leverage,
-            liquidation_price=self._calc_liquidation(entry_price, leverage, action, trading_mode),
+            liquidation_price=liq_price,
+            market_mode=market_mode,
+            position_intent=position_intent,
+            direction=direction,
+            margin_mode=margin_mode,
+            notional_size=notional_size or (position_size_usd * leverage),
+            liquidation_buffer_percent=liquidation_buffer_percent,
         )
 
         self._balance -= total_cost

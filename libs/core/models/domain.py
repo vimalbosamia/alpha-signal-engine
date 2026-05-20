@@ -69,8 +69,30 @@ class Direction(str, Enum):
     """Normalised direction across spot and futures signal types."""
     LONG = "LONG"
     SHORT = "SHORT"
+    FLAT = "FLAT"
     EXIT = "EXIT"
     NO_TRADE = "NO_TRADE"
+
+
+class PositionIntent(str, Enum):
+    """
+    Unambiguous intent for every trade action.
+
+    Resolves the BUY/SELL ambiguity: SELL can mean CLOSE_LONG (spot)
+    or OPEN_SHORT (futures). This enum makes intent explicit.
+    """
+    OPEN_LONG = "OPEN_LONG"
+    CLOSE_LONG = "CLOSE_LONG"
+    OPEN_SHORT = "OPEN_SHORT"
+    CLOSE_SHORT = "CLOSE_SHORT"
+    HOLD = "HOLD"
+    EXIT = "EXIT"
+    REVERSE_LONG_TO_SHORT = "REVERSE_LONG_TO_SHORT"
+    REVERSE_SHORT_TO_LONG = "REVERSE_SHORT_TO_LONG"
+
+
+# Alias for spec compatibility
+MarketMode = TradingMode
 
 
 class RiskLevel(str, Enum):

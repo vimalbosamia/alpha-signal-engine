@@ -169,6 +169,15 @@ class PaperTradingEngine:
                     "trading_mode": getattr(trade, 'trading_mode', 'spot'),
                     "leverage": getattr(trade, 'leverage', 1.0),
                     "liquidation_price": getattr(trade, 'liquidation_price', 0.0),
+                    # Document (4) fields
+                    "market_mode": getattr(trade, 'market_mode', 'SPOT'),
+                    "position_intent": getattr(trade, 'position_intent', 'OPEN_LONG'),
+                    "direction": getattr(trade, 'direction', 'LONG'),
+                    "margin_mode": getattr(trade, 'margin_mode', None),
+                    "notional_size": getattr(trade, 'notional_size', 0.0),
+                    "liquidation_buffer_percent": getattr(trade, 'liquidation_buffer_percent', 0.0),
+                    "bias_status": getattr(trade, 'bias_status', 'unknown'),
+                    "current_bias": getattr(trade, 'current_bias', 'unknown'),
                 })
         return positions
 

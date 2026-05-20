@@ -15,8 +15,9 @@ from abc import ABC, abstractmethod
 
 from datetime import datetime, timezone
 
-from libs.core.models.domain import SignalAction, SignalOutput
+from libs.core.models.domain import SignalAction, SignalOutput, TradingMode
 from libs.paper_trading.allocator import CapitalAllocator
+from libs.paper_trading.market_mode_validator import validate_signal
 from libs.paper_trading.portfolio import PaperPortfolio
 from libs.paper_trading.shared_memory import get_shared_memory
 
@@ -176,6 +177,41 @@ class BotAgent(ABC):
         except Exception:
             pass
 
+        # ── Determine market mode ──
+        trading_mode_raw = getattr(signal, 'trading_mode', TradingMode.SPOT)
+        if isinstance(trading_mode_raw, TradingMode):
+            market_mode = trading_mode_raw.value.upper()
+        else:
+            market_mode = "FUTURES" if "futures" in str(trading_mode_raw) else "SPOT"
+
+        leverage = 3.0 if market_mode == "FUTURES" else 1.0
+
+        # ── Spot/Futures validation (document 4) ──
+        existing_longs = {t.symbol for t in self._portfolio.open_trades if t.direction == "LONG"}
+        existing_shorts = {t.symbol for t in self._portfolio.open_trades if t.direction == "SHORT"}
+
+        validation = validate_signal(
+            side=signal.action.value,
+            symbol=signal.symbol,
+            market_mode=market_mode,
+            position_size_usd=size,
+            entry_price=entry_price,
+            stop_loss=signal.stop_loss,
+            take_profit=signal.take_profit_1,
+            leverage=leverage,
+            existing_long_symbols=existing_longs,
+            existing_short_symbols=existing_shorts,
+            available_cash=self._portfolio.balance,
+        )
+
+        if not validation.approved:
+            from libs.core.logging.logger import get_logger
+            _log = get_logger(__name__)
+            _log.info("signal_rejected",
+                       bot=self.NAME, symbol=signal.symbol,
+                       reason=validation.reason, market_mode=market_mode)
+            return None
+
         trade_id = self._portfolio.open_trade(
             symbol=signal.symbol,
             asset_class=signal.asset_class.value,
@@ -190,8 +226,14 @@ class BotAgent(ABC):
             entry_bias=bias_str,
             entry_rsi=rsi_val,
             entry_regime=regime_str,
-            trading_mode=getattr(signal, 'data_provider', 'spot'),
-            leverage=3.0 if 'futures' in getattr(signal, 'data_provider', '') else 1.0,
+            trading_mode=market_mode.lower(),
+            leverage=leverage,
+            market_mode=market_mode,
+            position_intent=validation.position_intent,
+            direction=validation.direction,
+            margin_mode=validation.margin_mode,
+            notional_size=validation.notional_size,
+            liquidation_buffer_percent=validation.liquidation_buffer_percent,
         )
 
         if trade_id is None:
