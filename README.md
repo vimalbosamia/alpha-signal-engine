@@ -13,7 +13,7 @@ Institutional-grade trading signal intelligence engine with 6 competing hedge fu
 > - **The developers are NOT responsible** for any financial losses, damages, or consequences arising from the use of this software.
 > - **Do NOT trade with money you cannot afford to lose.**
 > - **This system generates signals only** — it does not place, modify, or cancel any real orders.
-> - **Paper trading results are simulated** and do not reflect real market execution, slippage, or liquidity constraints.
+> - **Paper trading uses virtual money ($10,000)** with real market prices. Trades are executed against live data but no real money is at risk. Real execution may differ due to slippage, liquidity, and order book depth.
 > - **Always consult a licensed financial advisor** before making any investment decisions.
 > - By using this software, you acknowledge that you are solely responsible for your own trading decisions.
 >
