@@ -35,6 +35,7 @@ class BiasInput:
     candle_bearish_count: int   # number of bearish candle signals
     candle_total: int           # total candles evaluated (denominator)
     regime_supports_direction: bool  # does the current regime favour a trade?
+    adx: float = 0.0           # ADX trend strength (0-100). <20 = no trend
     volume_confirms: bool       # does volume confirm the dominant direction?
     htf_bias: str               # "bullish" | "bearish" | "neutral"
 
@@ -118,7 +119,11 @@ class BullBearBiasEngine:
         bull, bear, htf_conflicted = self._apply_htf_penalty(bull, bear, inp)
         bull_norm, bear_norm, neutral_norm = self._normalize(bull, bear)
         conflict = self._compute_conflict(bull_norm, bear_norm, htf_conflicted)
-        net_bias = self._net_bias(bull_norm, bear_norm)
+        # ADX override: no trend = no direction
+        if inp.adx > 0 and inp.adx < 20:
+            net_bias = "neutral"
+        else:
+            net_bias = self._net_bias(bull_norm, bear_norm)
         explanation = self._build_explanation(
             inp=inp,
             bull=bull_norm,

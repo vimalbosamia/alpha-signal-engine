@@ -364,6 +364,7 @@ class SignalPipeline:
                     regime_supports_direction=regime_val.lower() in trending_regimes,
                     volume_confirms=vol_confirms,
                     htf_bias=htf_bias_str,
+                    adx=indicators.adx if indicators.adx else 0.0,
                 ))
                 log.debug(
                     "symbol_bias_computed",
