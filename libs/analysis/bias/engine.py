@@ -64,10 +64,10 @@ class BullBearBiasEngine:
     Compute a composite directional bias from multiple evidence sources.
 
     Factor weights (must sum to 1.0):
-      indicators   35%
-      structure    25%
+      indicators   40%
+      structure    15%
       candles       5%
-      regime       10%
+      regime       15%
       volume       10%
       htf          15%
 
@@ -152,7 +152,7 @@ class BullBearBiasEngine:
         bull = 0.0
         bear = 0.0
 
-        # 1. Indicators (30%)
+        # 1. Indicators (40%)
         bull += inp.indicator_bullish * self.WEIGHT_INDICATORS
         bear += inp.indicator_bearish * self.WEIGHT_INDICATORS
 
@@ -164,7 +164,7 @@ class BullBearBiasEngine:
             bear += inp.structure_strength * struct_weight
         # neutral structure contributes nothing directional
 
-        # 3. Candles (15%)
+        # 3. Candles (5%)
         if inp.candle_total > 0:
             candle_bull_ratio = inp.candle_bullish_count / inp.candle_total
             candle_bear_ratio = inp.candle_bearish_count / inp.candle_total

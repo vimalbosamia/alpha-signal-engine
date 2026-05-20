@@ -290,6 +290,9 @@ class PaperPortfolio:
 
         self._open_trades = [t for t in self._open_trades if t.id != trade_id]
         self._closed_trades.append(result)
+        # Cap closed trades to prevent unbounded memory growth
+        if len(self._closed_trades) > 1000:
+            self._closed_trades = self._closed_trades[-1000:]
         return result
 
     # ── Unrealized P&L ────────────────────────────────────────────────────────
