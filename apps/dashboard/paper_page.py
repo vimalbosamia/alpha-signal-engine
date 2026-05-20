@@ -180,6 +180,105 @@ async def paper_reset() -> JSONResponse:
         return JSONResponse(content={"error": str(exc)}, status_code=500)
 
 
+@router.get("/api/paper/preview")
+async def signal_preview() -> JSONResponse:
+    """Scan all watchlist symbols and show bias + upcoming trade potential."""
+    from datetime import timedelta
+    from libs.core.config.settings import get_settings
+    from libs.core.models.domain import Timeframe
+    from libs.data.providers.cache import ProviderCache
+    from libs.data.candles.builder import CandleBuilder
+    from libs.analysis.indicators.engine import IndicatorsEngine
+    from libs.analysis.indicators.bias import IndicatorBiasAnalyzer
+    from libs.analysis.structure.market_structure import MarketStructureAnalyzer
+    from libs.analysis.regime.engine import RegimeEngine
+    from libs.analysis.bias.engine import BullBearBiasEngine, BiasInput
+    import math
+
+    try:
+        settings = get_settings()
+        symbols = settings.signal.crypto_symbols[:20]  # Top 20
+        now = datetime.now(timezone.utc)
+        start = now - timedelta(days=3)
+        previews = []
+
+        for sym in symbols:
+            try:
+                provider = ProviderCache.binance() if sym.endswith("USDT") else ProviderCache.alpaca()
+                df = await provider.get_candles(sym, Timeframe.FIFTEEN_MIN, start, now)
+                df = CandleBuilder().enrich(df)
+                if len(df) < 20:
+                    continue
+
+                indicators = IndicatorsEngine().compute(df)
+                regime = RegimeEngine().analyze(df)
+                structure = MarketStructureAnalyzer().analyze(df)
+
+                last_close = float(df["close"].iloc[-1])
+                rel_vol = float(df["relative_volume"].iloc[-1]) if "relative_volume" in df else 1.0
+                is_bull = bool(df["is_bullish"].iloc[-1]) if "is_bullish" in df else True
+
+                indicator_bias = IndicatorBiasAnalyzer().analyze_all(
+                    rsi=indicators.rsi or 50, rsi_prev=indicators.rsi_prev or 50,
+                    macd_line=indicators.macd_line or 0, macd_signal=indicators.macd_signal or 0,
+                    histogram=indicators.macd_histogram or 0, histogram_prev=indicators.macd_histogram_prev or 0,
+                    close=last_close, bb_upper=indicators.bb_upper or last_close + 1,
+                    bb_lower=indicators.bb_lower or last_close - 1, bb_pct_b=indicators.bb_pct_b or 0.5,
+                    ema_9=indicators.ema_9 or last_close, ema_20=indicators.ema_20 or last_close,
+                    ema_50=indicators.ema_50 or last_close,
+                    adx=indicators.adx or 0,
+                    relative_volume=rel_vol, is_bullish_candle=is_bull,
+                )
+
+                bias = BullBearBiasEngine().score(BiasInput(
+                    indicator_bullish=indicator_bias.bullish_score,
+                    indicator_bearish=indicator_bias.bearish_score,
+                    structure_bias=structure.trend_bias,
+                    structure_strength=structure.strength,
+                    candle_bullish_count=0, candle_bearish_count=0, candle_total=1,
+                    regime_supports_direction=True,
+                    volume_confirms=rel_vol > 1.2,
+                    htf_bias="neutral",
+                ))
+
+                def _s(v):
+                    if v is None: return None
+                    if isinstance(v, float) and (math.isnan(v) or math.isinf(v)): return None
+                    return round(v, 4)
+
+                # Readiness: how close to triggering a trade
+                gap = abs(bias.bullish_score - bias.bearish_score)
+                if bias.net_bias != "neutral":
+                    readiness = "READY" if gap > 0.15 else "ALMOST"
+                else:
+                    readiness = "WAITING"
+
+                previews.append({
+                    "symbol": sym,
+                    "bias": bias.net_bias,
+                    "bullish": _s(bias.bullish_score),
+                    "bearish": _s(bias.bearish_score),
+                    "conflict": _s(bias.conflict_score),
+                    "regime": regime.regime.value if hasattr(regime.regime, "value") else str(regime.regime),
+                    "structure": structure.trend_bias,
+                    "rsi": _s(indicators.rsi),
+                    "adx": _s(indicators.adx),
+                    "volume": _s(rel_vol),
+                    "readiness": readiness,
+                    "price": _s(last_close),
+                })
+            except Exception:
+                continue
+
+        # Sort: READY first, then ALMOST, then WAITING
+        order = {"READY": 0, "ALMOST": 1, "WAITING": 2}
+        previews.sort(key=lambda p: order.get(p["readiness"], 3))
+
+        return JSONResponse(content={"previews": previews})
+    except Exception as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=500)
+
+
 @router.get("/api/paper/chart/{symbol}")
 async def paper_chart_data(symbol: str, timeframe: str = "15m") -> JSONResponse:
     """Return OHLCV candles + indicators for charting."""
@@ -556,6 +655,26 @@ async def paper_dashboard() -> HTMLResponse:
         </tbody>
       </table>
     </div>
+  </div>
+
+  <!-- Signal Preview -->
+  <div class="panel">
+    <div class="panel-header">
+      <h2>🔮 Signal Preview — Upcoming Trades</h2>
+      <button class="btn-sm" onclick="loadPreview()">Scan Now</button>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Status</th><th>Symbol</th><th>Bias</th><th>Bull%</th><th>Bear%</th>
+          <th>Conflict</th><th>Regime</th><th>Structure</th><th>RSI</th><th>ADX</th>
+          <th>Vol</th><th>Price</th>
+        </tr>
+      </thead>
+      <tbody id="preview-body">
+        <tr><td colspan="12" class="empty">Click "Scan Now" to preview signals</td></tr>
+      </tbody>
+    </table>
   </div>
 
   <!-- Equity Curve -->
@@ -1135,6 +1254,45 @@ function renderIndicatorPanel(data) {
   `;
 }
 
+// ── Signal Preview ──────────────────────────────────────────────────────────
+async function loadPreview() {
+  const tbody = document.getElementById('preview-body');
+  tbody.innerHTML = '<tr><td colspan="12" class="empty">Scanning 20 symbols...</td></tr>';
+  try {
+    const r = await fetch('/api/paper/preview');
+    const d = await r.json();
+    const previews = d.previews || [];
+    if (!previews.length) {
+      tbody.innerHTML = '<tr><td colspan="12" class="empty">No symbols scanned</td></tr>';
+      return;
+    }
+    tbody.innerHTML = previews.map(p => {
+      const statusIcon = p.readiness === 'READY' ? '🟢' : p.readiness === 'ALMOST' ? '🟡' : '⚪';
+      const statusClr = p.readiness === 'READY' ? 'var(--green)' : p.readiness === 'ALMOST' ? 'var(--yellow)' : 'var(--muted)';
+      const biasClr = p.bias === 'bullish' ? 'var(--green)' : p.bias === 'bearish' ? 'var(--red)' : 'var(--muted)';
+      const biasLabel = p.bias === 'bullish' ? '▲ BULL' : p.bias === 'bearish' ? '▼ BEAR' : '— NEUTRAL';
+      const structClr = p.structure === 'bullish' ? 'var(--green)' : p.structure === 'bearish' ? 'var(--red)' : 'var(--muted)';
+      const rsiClr = (p.rsi||50) <= 30 ? 'var(--green)' : (p.rsi||50) >= 70 ? 'var(--red)' : 'var(--text)';
+      return `<tr>
+        <td style="color:${statusClr};font-weight:bold">${statusIcon} ${p.readiness}</td>
+        <td style="font-weight:bold;cursor:pointer" onclick="openChart('${p.symbol}',0,0,0,'${p.bias}','preview')">${p.symbol} 📊</td>
+        <td style="color:${biasClr};font-weight:bold">${biasLabel}</td>
+        <td class="green">${((p.bullish||0)*100).toFixed(0)}%</td>
+        <td class="red">${((p.bearish||0)*100).toFixed(0)}%</td>
+        <td style="color:${p.conflict>0.8?'var(--red)':p.conflict>0.5?'var(--yellow)':'var(--green)'}">${((p.conflict||0)*100).toFixed(0)}%</td>
+        <td style="color:var(--muted);font-size:0.68rem">${p.regime}</td>
+        <td style="color:${structClr}">${p.structure}</td>
+        <td style="color:${rsiClr}">${p.rsi||'—'}</td>
+        <td>${p.adx||'—'}</td>
+        <td>${p.volume||'—'}x</td>
+        <td>\$${p.price||'—'}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="12" class="empty">Scan failed</td></tr>';
+  }
+}
+
 // ── Equity Curve ────────────────────────────────────────────────────────────
 let equityChart = null;
 let equityLineSeries = null;
@@ -1190,8 +1348,10 @@ async function loadEquity() {
 // ── Boot ──────────────────────────────────────────────────────────────────────
 refreshAll();
 loadEquity();
+loadPreview();
 setInterval(refreshAll, 5000);
-setInterval(loadEquity, 10000);  // Update equity every 10s
+setInterval(loadEquity, 10000);
+setInterval(loadPreview, 60000);  // Refresh preview every 60s  // Update equity every 10s
 </script>
 
 <!-- Chart Modal Overlay -->
