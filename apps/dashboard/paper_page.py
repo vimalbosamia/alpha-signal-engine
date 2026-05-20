@@ -925,9 +925,9 @@ async function loadSummary() {
 
 function updateHero(d) {
   const balance = d.total_balance ?? 10000;
-  const startBalance = d.start_balance ?? 10000;
-  const pnl = balance - startBalance;
-  const pnlPct = startBalance > 0 ? (pnl / startBalance) * 100 : 0;
+  const startBalance = d.initial_capital ?? 10000;
+  const pnl = d.total_pnl ?? (balance - startBalance);
+  const pnlPct = d.total_pnl_pct ?? (startBalance > 0 ? (pnl / startBalance) * 100 : 0);
 
   const h1 = document.getElementById('money-h1');
   h1.textContent = fmtMoney(balance);
@@ -942,9 +942,11 @@ function updateHero(d) {
   pnlPctEl.style.color = pnlColor(pnlPct);
 
   document.getElementById('hero-start').textContent = fmtMoney(startBalance);
-  document.getElementById('hero-uptime').textContent = d.uptime ?? '—';
+  const secs = d.uptime_seconds ?? 0;
+  const hrs = Math.floor(secs / 3600); const mins = Math.floor((secs % 3600) / 60);
+  document.getElementById('hero-uptime').textContent = hrs > 0 ? hrs + 'h ' + mins + 'm' : mins + 'm';
   document.getElementById('hero-bots').textContent = (d.bots ?? []).length;
-  document.getElementById('hero-open-pos').textContent = d.open_positions ?? 0;
+  document.getElementById('hero-open-pos').textContent = d.total_open_positions ?? 0;
 }
 
 function renderLeaderboard(bots) {
@@ -960,27 +962,30 @@ function renderLeaderboard(bots) {
   tbody.innerHTML = sorted.map((bot, i) => {
     const rank = i + 1;
     const rankClass = rank === 1 ? 'gold' : rank === 2 ? 'silver' : rank === 3 ? 'bronze' : '';
-    const pnl = (bot.effective_balance ?? 0) - (bot.start_balance ?? 10000);
-    const pnlPct = (bot.start_balance ?? 10000) > 0
-      ? (pnl / (bot.start_balance ?? 10000)) * 100 : 0;
-    const winRate = bot.win_rate != null ? bot.win_rate.toFixed(1) + '%' : '—';
-    const sharpe  = bot.sharpe_ratio != null ? bot.sharpe_ratio.toFixed(2) : '—';
-    const phase = (bot.phase ?? 'running').toLowerCase();
-    const phaseCls = phase === 'running' ? 'running' : phase === 'paused' ? 'paused' : 'stopped';
+    const name = bot.bot_name ?? bot.name ?? '—';
+    const initCap = bot.initial_capital ?? 1666.67;
+    const effBal = bot.effective_balance ?? bot.balance ?? initCap;
+    const pnl = bot.total_pnl ?? (effBal - initCap);
+    const pnlPct = bot.pnl_pct ?? (initCap > 0 ? (pnl / initCap) * 100 : 0);
+    const wr = bot.win_rate != null ? (bot.win_rate * 100).toFixed(0) + '%' : '0%';
+    const trades = bot.trade_count ?? bot.total_trades ?? 0;
+    const sharpe = bot.sharpe_ratio != null ? bot.sharpe_ratio.toFixed(2) : '0.00';
+    const phase = (bot.phase ?? 'cold_start').toUpperCase();
+    const phaseCls = phase === 'FULL' ? 'running' : phase === 'PAUSED' ? 'paused' : 'stopped';
 
     return `<tr>
       <td><span class="rank ${rankClass}">${rank}</span></td>
-      <td style="font-weight:bold;color:var(--bright)">${bot.name ?? '—'}</td>
-      <td style="font-variant-numeric:tabular-nums">${fmtMoney(bot.effective_balance)}</td>
+      <td style="font-weight:bold;color:var(--bright)">${name}</td>
+      <td style="font-variant-numeric:tabular-nums">${fmtMoney(effBal)}</td>
       <td style="color:${pnlColor(pnl)}">${pnl >= 0 ? '+' : ''}${fmtMoney(pnl)}</td>
       <td style="color:${pnlColor(pnlPct)}">${fmtPct(pnlPct)}</td>
-      <td>${winRate}</td>
-      <td>${bot.total_trades ?? 0}</td>
+      <td>${wr} (${bot.win_count ?? 0}W/${bot.loss_count ?? 0}L)</td>
+      <td>${trades}</td>
       <td style="color:var(--muted)">${sharpe}</td>
-      <td><span class="phase-badge ${phaseCls}">${phase.toUpperCase()}</span></td>
+      <td><span class="phase-badge ${phaseCls}">${phase}</span></td>
       <td>
-        <button class="bot-btn pause" onclick="pauseBot('${bot.name}')">Pause</button>
-        <button class="bot-btn resume" onclick="resumeBot('${bot.name}')">Resume</button>
+        <button class="bot-btn pause" onclick="pauseBot('${name}')">Pause</button>
+        <button class="bot-btn resume" onclick="resumeBot('${name}')">Resume</button>
       </td>
     </tr>`;
   }).join('');
