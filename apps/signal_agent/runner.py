@@ -158,6 +158,7 @@ class SignalRunner:
                 audit_log=self._audit,
                 metrics=self._metrics,
                 event_bus=self._bus,
+                trading_mode="futures",
             )
 
         # Position watcher: alerts when open signals hit TP or SL

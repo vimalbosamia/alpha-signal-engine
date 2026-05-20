@@ -147,9 +147,11 @@ class SignalPipeline:
         portfolio_guard: PortfolioGuard | None = None,
         candle_lookback: int = 200,
         htf_multiplier: int = 4,   # e.g. 5m → 20m for HTF
+        trading_mode: str = "spot",  # "spot" or "futures"
     ) -> None:
         self._provider = provider
         self._strategies = strategies
+        self._trading_mode = trading_mode
         self._audit = audit_log or AuditLog(enabled=False)
         self._metrics = metrics or MetricsCollector()
         self._bus = event_bus or EventBus()
@@ -632,7 +634,12 @@ class SignalPipeline:
                     paper_action = allowed_action  # Override — bias agrees with strategy
 
                 if paper_action != SignalAction.NO_TRADE:
-                    paper_signal = output.model_copy(update={"action": paper_action})
+                    from libs.core.models.domain import TradingMode
+                    paper_mode = TradingMode.FUTURES if self._trading_mode == "futures" else TradingMode.SPOT
+                    paper_signal = output.model_copy(update={
+                        "action": paper_action,
+                        "trading_mode": paper_mode,
+                    })
                     await self._bus.publish("paper.signal.raw", {
                         "signal": paper_signal,
                     })
