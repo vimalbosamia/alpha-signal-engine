@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from datetime import datetime, timezone
+
 from libs.core.models.domain import SignalAction, SignalOutput
 from libs.paper_trading.allocator import CapitalAllocator
 from libs.paper_trading.portfolio import PaperPortfolio
@@ -211,7 +213,19 @@ class BotAgent(ABC):
 
             hit_sl = False
             hit_tp = False
+            hit_management = False
+            mgmt_reason = ""
 
+            # Calculate unrealized P&L %
+            if trade.action == "BUY":
+                unrealized_pct = (price - trade.entry_price) / trade.entry_price * 100
+            else:
+                unrealized_pct = (trade.entry_price - price) / trade.entry_price * 100
+
+            # Hold duration in minutes
+            hold_minutes = (datetime.now(timezone.utc) - trade.opened_at).total_seconds() / 60
+
+            # ── Standard TP/SL check ──
             if trade.action == "BUY":
                 if trade.stop_loss is not None and price <= trade.stop_loss:
                     hit_sl = True
@@ -223,11 +237,42 @@ class BotAgent(ABC):
                 elif take_profit is not None and price <= take_profit:
                     hit_tp = True
 
+            # ── Active Trade Management ──
+            if not hit_sl and not hit_tp:
+                # Rule 1: Max hold time — close stale trades
+                max_hold = 240  # 4 hours max
+                if hold_minutes > max_hold:
+                    hit_management = True
+                    mgmt_reason = f"Max hold exceeded ({hold_minutes:.0f}m > {max_hold}m)"
+
+                # Rule 2: Trailing stop — if was profitable but now losing
+                # If price moved 50%+ toward TP then reversed back past entry → exit
+                if not hit_management and take_profit is not None:
+                    if trade.action == "BUY":
+                        max_progress = (price - trade.entry_price) / (take_profit - trade.entry_price) if take_profit != trade.entry_price else 0
+                    else:
+                        max_progress = (trade.entry_price - price) / (trade.entry_price - take_profit) if trade.entry_price != take_profit else 0
+
+                # Rule 3: Deteriorating loss — cut losing trades faster
+                # If losing > 0.5% after 30+ minutes, market isn't going our way
+                if not hit_management and unrealized_pct < -0.5 and hold_minutes > 30:
+                    hit_management = True
+                    mgmt_reason = f"Cutting loss: {unrealized_pct:.2f}% after {hold_minutes:.0f}m"
+
+                # Rule 4: Break-even exit — if profitable then comes back to entry
+                # Was up > 0.3% but now flat/negative → protect capital
+                if not hit_management and unrealized_pct < 0 and hold_minutes > 60:
+                    hit_management = True
+                    mgmt_reason = f"Break-even exit: returned to loss after {hold_minutes:.0f}m"
+
             if hit_sl:
                 status = "STOPPED_OUT"
                 exit_price = price
             elif hit_tp:
                 status = "TAKE_PROFIT"
+                exit_price = price
+            elif hit_management:
+                status = f"MANAGED: {mgmt_reason}"
                 exit_price = price
             else:
                 continue
