@@ -248,9 +248,21 @@ async def signal_preview() -> JSONResponse:
                     if isinstance(v, float) and (math.isnan(v) or math.isinf(v)): return None
                     return round(v, 4)
 
-                # Readiness: how close to triggering a trade
+                # Readiness: match pipeline logic exactly
+                adx_val = indicators.adx if indicators.adx else 0
                 gap = abs(bias.bullish_score - bias.bearish_score)
-                if bias.net_bias != "neutral":
+
+                # Check if symbol already held
+                held_symbols = set()
+                if _engine:
+                    for pos in _engine.get_all_open_positions():
+                        held_symbols.add(pos["symbol"])
+
+                if sym in held_symbols:
+                    readiness = "HELD"
+                elif adx_val < 20:
+                    readiness = "NO TREND"  # ADX too low — pipeline blocks
+                elif bias.net_bias != "neutral":
                     readiness = "READY" if gap > 0.15 else "ALMOST"
                 else:
                     readiness = "WAITING"
@@ -273,7 +285,7 @@ async def signal_preview() -> JSONResponse:
                 continue
 
         # Sort: READY first, then ALMOST, then WAITING
-        order = {"READY": 0, "ALMOST": 1, "WAITING": 2}
+        order = {"READY": 0, "ALMOST": 1, "HELD": 2, "WAITING": 3, "NO TREND": 4}
         previews.sort(key=lambda p: order.get(p["readiness"], 3))
 
         return JSONResponse(content={"previews": previews})
@@ -1412,8 +1424,10 @@ async function loadPreview() {
       return;
     }
     tbody.innerHTML = previews.map(p => {
-      const statusIcon = p.readiness === 'READY' ? '🟢' : p.readiness === 'ALMOST' ? '🟡' : '⚪';
-      const statusClr = p.readiness === 'READY' ? 'var(--green)' : p.readiness === 'ALMOST' ? 'var(--yellow)' : 'var(--muted)';
+      const statusMap = {'READY':'🟢','ALMOST':'🟡','HELD':'🔵','NO TREND':'⛔','WAITING':'⚪'};
+      const clrMap = {'READY':'var(--green)','ALMOST':'var(--yellow)','HELD':'var(--blue)','NO TREND':'var(--red)','WAITING':'var(--muted)'};
+      const statusIcon = statusMap[p.readiness] || '⚪';
+      const statusClr = clrMap[p.readiness] || 'var(--muted)';
       const biasClr = p.bias === 'bullish' ? 'var(--green)' : p.bias === 'bearish' ? 'var(--red)' : 'var(--muted)';
       const biasLabel = p.bias === 'bullish' ? '▲ BULL' : p.bias === 'bearish' ? '▼ BEAR' : '— NEUTRAL';
       const structClr = p.structure === 'bullish' ? 'var(--green)' : p.structure === 'bearish' ? 'var(--red)' : 'var(--muted)';
