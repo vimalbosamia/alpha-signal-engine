@@ -200,10 +200,13 @@ class PaperTradingEngine:
             total += effective
 
         self._equity_snapshots.append({
-            "timestamp": datetime.now(timezone.utc),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "total_balance": total,
             "bots": per_bot,
         })
+        # Cap at 2000 snapshots to prevent unbounded memory growth
+        if len(self._equity_snapshots) > 2000:
+            self._equity_snapshots = self._equity_snapshots[-2000:]
 
     # ── Pause / resume ─────────────────────────────────────────────────────────
 

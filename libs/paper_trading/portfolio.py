@@ -319,6 +319,6 @@ class PaperPortfolio:
         gross_loss = abs(sum(r for r in self._returns if r < 0))
 
         if gross_loss == 0.0:
-            return float("inf") if gross_profit > 0 else 0.0
+            return 999.0 if gross_profit > 0 else 0.0  # Avoid Inf for JSON safety
 
         return gross_profit / gross_loss

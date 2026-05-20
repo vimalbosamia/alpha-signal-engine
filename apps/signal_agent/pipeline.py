@@ -67,6 +67,12 @@ from libs.analysis.indicators.bias import IndicatorBiasAnalyzer
 from libs.analysis.structure.market_structure import MarketStructureAnalyzer
 from libs.analysis.levels.supply_demand import SupplyDemandDetector
 from libs.analysis.bias.engine import BullBearBiasEngine, BiasInput
+from libs.analysis.macro.news import NewsImpactEngine
+from libs.analysis.macro.sentiment import SentimentFilter
+from libs.analysis.macro.correlation import MarketCorrelationFilter
+from libs.analysis.macro.global_risk import GlobalRiskEngine
+from libs.analysis.macro.derivatives import DerivativesPressureEngine
+from libs.risk.cost_model import CostModelEngine
 from libs.signals.confluence.engine import ConfluenceEngine
 from libs.signals.output.emitter import SignalEmitter
 from libs.risk.engine import RiskEngine
@@ -308,6 +314,33 @@ class SignalPipeline:
                           conflict=symbol_bias.conflict_score if symbol_bias else 0)
                 return outputs  # Skip all strategies for this symbol
 
+            # ── 4d. Macro filters ────────────────────────────────────────
+            macro_confidence_adj = 0.0
+            try:
+                # News impact — block during FOMC/CPI/NFP
+                news = NewsImpactEngine().assess(symbol, asset_class.value)
+                if news.should_block:
+                    log.info("news_blocked", symbol=symbol, reason=news.explanation)
+                    return outputs
+                macro_confidence_adj += news.total_confidence_impact
+
+                # Sentiment — Fear/Greed + volatility
+                atr_pct = (regime.atr / float(df["close"].iloc[-1]) * 100) if regime.atr and float(df["close"].iloc[-1]) > 0 else 1.0
+                sentiment = SentimentFilter().assess(fear_greed_value=50, volatility_pct=atr_pct)
+                macro_confidence_adj += sentiment.confidence_adjustment
+
+                # Global risk — VIX + drawdowns
+                global_risk = GlobalRiskEngine().assess()
+                if global_risk.risk_level == "extreme":
+                    log.info("global_risk_extreme", symbol=symbol, score=global_risk.risk_score)
+                    return outputs
+                macro_confidence_adj += global_risk.confidence_adjustment
+
+                log.debug("macro_filters_applied", symbol=symbol,
+                          confidence_adj=round(macro_confidence_adj, 3))
+            except Exception as exc:
+                log.debug("macro_filter_error", error=str(exc))
+
             # ── 5. Strategies (direction-locked) ─────────────────────────
             for strategy in self._strategies:
                 if not strategy.is_eligible(asset_class, session, quality):
@@ -440,6 +473,29 @@ class SignalPipeline:
                             continue
                 except Exception:
                     pass
+
+                # ── 10. Cost model — reject if costs eat the profit ────────
+                try:
+                    entry = (candidate.entry_zone_low + candidate.entry_zone_high) / 2
+                    expected_move = abs(candidate.take_profit_1 - entry) / entry * 100 if entry > 0 else 0
+                    costs = CostModelEngine().assess(
+                        symbol=symbol, asset_class=asset_class.value,
+                        entry_price=entry, expected_move_pct=expected_move,
+                    )
+                    if costs.should_reject:
+                        log.debug("cost_model_rejected", symbol=symbol, strategy=strategy.name,
+                                  expected_move=round(expected_move, 3), min_move=costs.min_profitable_move_pct)
+                        continue
+                except Exception:
+                    pass
+
+                # Apply macro confidence adjustment
+                if macro_confidence_adj != 0 and hasattr(breakdown, 'model_copy'):
+                    try:
+                        adjusted = max(0.0, min(1.0, breakdown.weighted_total + macro_confidence_adj))
+                        breakdown = breakdown.model_copy(update={"weighted_total": adjusted})
+                    except Exception:
+                        pass
 
                 # Emit signal
                 output = self._emitter.emit(candidate, breakdown)

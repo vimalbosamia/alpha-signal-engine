@@ -13,6 +13,7 @@ from libs.paper_trading.bot_agent import BotAgent
 
 _STRATEGIES: frozenset[str] = frozenset({
     "pullback_continuation", "pullback_bear_continuation", "rsi_mean_reversion",
+    "bollinger_mean_reversion", "gap_fill", "range_fade", "vwap_reclaim",
 })
 
 _ALLOWED_REGIMES: frozenset[MarketRegime] = frozenset({

@@ -12,7 +12,8 @@ from libs.core.models.domain import MarketRegime, SignalOutput, Timeframe
 from libs.paper_trading.bot_agent import BotAgent
 
 _STRATEGIES: frozenset[str] = frozenset({
-    "ema_crossover", "macd_crossover",
+    "ema_crossover", "macd_crossover", "sma_crossover", "trend_following",
+    "momentum_continuation", "mtf_alignment",
 })
 
 _ALLOWED_REGIMES: frozenset[MarketRegime] = frozenset({

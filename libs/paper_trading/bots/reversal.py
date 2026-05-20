@@ -13,7 +13,8 @@ from libs.core.models.domain import MarketRegime, SignalOutput, Timeframe
 from libs.paper_trading.bot_agent import BotAgent
 
 _STRATEGIES: frozenset[str] = frozenset({
-    "hammer_reversal", "shooting_star_reversal",
+    "hammer_reversal", "shooting_star_reversal", "candlestick_reversal",
+    "failed_breakout_reversal", "liquidity_sweep",
 })
 
 _REVERSAL_PATTERNS: frozenset[str] = frozenset({
