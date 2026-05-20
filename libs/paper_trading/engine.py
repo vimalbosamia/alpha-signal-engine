@@ -116,7 +116,7 @@ class PaperTradingEngine:
         for bot in self._bots:
             stats = bot.get_stats()
             unrealized = bot.portfolio.unrealized_pnl(live_prices)
-            effective_balance = bot.portfolio.balance + unrealized
+            effective_balance = bot.portfolio.balance + bot.portfolio.invested_capital + unrealized
 
             total_balance += effective_balance
             total_open_positions += stats.get("open_positions", 0)
@@ -203,12 +203,19 @@ class PaperTradingEngine:
         return list(self._equity_snapshots)
 
     def snapshot_equity(self, live_prices: dict[str, float]) -> None:
-        """Record an equity snapshot — total balance plus per-bot balances."""
+        """Record an equity snapshot — total balance plus per-bot balances.
+
+        effective = cash_balance + invested_capital + unrealized_pnl
+        This ensures positions without live prices still count at entry value.
+        """
         per_bot: dict[str, float] = {}
         total = 0.0
         for bot in self._bots:
             unrealized = bot.portfolio.unrealized_pnl(live_prices)
-            effective = bot.portfolio.balance + unrealized
+            # balance = remaining cash (after position costs deducted)
+            # invested_capital = sum of position_size_usd + fees in open trades
+            # unrealized = P&L on positions WITH live prices (0 for unpriced)
+            effective = bot.portfolio.balance + bot.portfolio.invested_capital + unrealized
             per_bot[bot.name] = effective
             total += effective
 

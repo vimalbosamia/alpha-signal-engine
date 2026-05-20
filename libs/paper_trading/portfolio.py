@@ -301,7 +301,7 @@ class PaperPortfolio:
         """
         Calculate total unrealized P&L across all open trades.
 
-        Symbols not present in live_prices contribute 0.
+        Symbols not present in live_prices contribute 0 P&L (not negative).
         """
         total = 0.0
         for trade in self._open_trades:
@@ -317,6 +317,11 @@ class PaperPortfolio:
             pnl *= trade.leverage
             total += pnl
         return total
+
+    @property
+    def invested_capital(self) -> float:
+        """Total capital currently locked in open positions (position_size_usd + fees)."""
+        return sum(t.position_size_usd + t.fees_paid for t in self._open_trades)
 
     # ── Metrics ───────────────────────────────────────────────────────────────
 
