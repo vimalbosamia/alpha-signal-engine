@@ -275,16 +275,23 @@ class BullBearBiasEngine:
         """
         Determine net directional bias.
 
-        Requires BOTH:
-        1. Relative margin: winner > loser + NET_BIAS_MARGIN
-        2. Absolute minimum: winner >= MIN_ABSOLUTE_SCORE (35%)
-
-        This prevents calling "bearish" with 26% score in a trending_up market.
+        Primary: weighted scores with margin + minimum.
+        Override: if weighted scores are too low but direction is clear,
+        use simple majority rule (bull > bear + margin).
         """
+        # Primary check with absolute minimum
         if bull > bear + self.NET_BIAS_MARGIN and bull >= self.MIN_ABSOLUTE_SCORE:
             return "bullish"
         if bear > bull + self.NET_BIAS_MARGIN and bear >= self.MIN_ABSOLUTE_SCORE:
             return "bearish"
+
+        # Fallback: if scores are low but one clearly dominates (2x the other)
+        # This catches cases where indicators agree but scores are diluted
+        if bull > 0.1 and bull > bear * 2:
+            return "bullish"
+        if bear > 0.1 and bear > bull * 2:
+            return "bearish"
+
         return "neutral"
 
     def _build_explanation(
