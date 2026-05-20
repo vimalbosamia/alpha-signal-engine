@@ -260,11 +260,8 @@ class SignalPipeline:
             except Exception:
                 pass
 
-            # ── 3d. Risk throttle — check if trading is halted ───────
+            # ── 3d. Risk throttle — reduce confidence, never fully halt ───
             throttle = self._risk_throttle.get_state()
-            if throttle.throttle_level == "halted":
-                log.info("risk_throttle_halted", symbol=symbol, reason=throttle.reason)
-                return outputs
 
             # ── 4. Context engines ────────────────────────────────────────
             structure = self._structure.analyze(df)
@@ -398,8 +395,9 @@ class SignalPipeline:
                 # News impact — block during FOMC/CPI/NFP
                 news = NewsImpactEngine().assess(symbol, asset_class.value)
                 if news.should_block:
-                    log.info("news_blocked", symbol=symbol, reason=news.explanation)
-                    return outputs
+                    # Don't block — just penalize confidence heavily
+                    macro_confidence_adj -= 0.15
+                    log.info("news_penalty", symbol=symbol, reason=news.explanation)
                 macro_confidence_adj += news.total_confidence_impact
 
                 # Sentiment — Fear/Greed + volatility
@@ -410,8 +408,8 @@ class SignalPipeline:
                 # Global risk — VIX + drawdowns
                 global_risk = GlobalRiskEngine().assess()
                 if global_risk.risk_level == "extreme":
-                    log.info("global_risk_extreme", symbol=symbol, score=global_risk.risk_score)
-                    return outputs
+                    macro_confidence_adj -= 0.15
+                    log.info("global_risk_penalty", symbol=symbol, score=global_risk.risk_score)
                 macro_confidence_adj += global_risk.confidence_adjustment
 
                 log.debug("macro_filters_applied", symbol=symbol,

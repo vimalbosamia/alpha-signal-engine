@@ -88,7 +88,7 @@ class BullBearBiasEngine:
 
     # ── Decision threshold ────────────────────────────────────────────────────
     NET_BIAS_MARGIN: float = 0.05
-    MIN_ABSOLUTE_SCORE: float = 0.35  # Must score at least 35% to declare direction
+    MIN_ABSOLUTE_SCORE: float = 0.25  # Must score at least 25% to declare direction
 
     # ── HTF conflict penalty ──────────────────────────────────────────────────
     HTF_CONFLICT_SHIFT: float  = 0.05   # points moved from dominant to opposite
@@ -155,8 +155,8 @@ class BullBearBiasEngine:
         # When structure has high strength (>0.7), it's the most reliable
         # directional signal — recent BOS/CHoCH events are leading indicators
         struct_weight = self.WEIGHT_STRUCTURE
-        if inp.structure_strength > 0.7:
-            struct_weight = 0.40  # Boost — structure is very confident
+        if inp.structure_strength > 0.6:
+            struct_weight = 0.35  # Boost — structure has conviction
         if inp.structure_bias == "bullish":
             bull += inp.structure_strength * struct_weight
         elif inp.structure_bias == "bearish":

@@ -70,7 +70,7 @@ class SignalSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="", env_file=".env", extra="ignore")
 
     # Signal thresholds
-    min_confluence_score: float = Field(default=0.40, ge=0.0, le=1.0)
+    min_confluence_score: float = Field(default=0.30, ge=0.0, le=1.0)
     min_reward_risk: float = Field(default=1.0, ge=0.5)
     max_active_signals: int = Field(default=100, ge=1)
     max_signals_per_symbol: int = Field(default=5, ge=1)
