@@ -498,12 +498,21 @@ async def paper_dashboard() -> HTMLResponse:
   <title>Paper Trading — AI Signal Agent</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    @import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@300;400;500;600;700&display=swap');
     :root {
-      --bg: #0d1117; --surface: #161b22; --border: #30363d;
-      --muted: #8b949e; --text: #c9d1d9; --bright: #f0f6fc;
-      --blue: #58a6ff; --green: #3fb950; --red: #f85149; --yellow: #d29922;
+      --bg: #0C1222; --surface: #131C31; --border: #1E2D4A;
+      --muted: #64748B; --text: #E2E8F0; --bright: #F8FAFC;
+      --blue: #3B82F6; --green: #10B981; --red: #EF4444; --yellow: #F59E0B;
+      --accent: #F59E0B; --surface2: #182440;
     }
-    body { font-family: 'Courier New', monospace; background: var(--bg); color: var(--text); min-height: 100vh; font-size: 13px; }
+    body { font-family: 'Exo 2', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; font-size: 13px; }
+
+    /* Smooth animations */
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes glow { 0%,100% { box-shadow: 0 0 5px rgba(16,185,129,0.1); } 50% { box-shadow: 0 0 20px rgba(16,185,129,0.2); } }
+    .panel { animation: fadeIn 0.3s ease; }
+    tr { transition: background 0.15s ease; }
 
     /* ── Nav ── */
     header {
@@ -529,25 +538,28 @@ async def paper_dashboard() -> HTMLResponse:
 
     /* ── Hero money counter ── */
     .hero {
-      background: var(--surface); border-bottom: 1px solid var(--border);
-      padding: 32px 20px 24px; text-align: center;
+      background: linear-gradient(135deg, var(--surface) 0%, var(--surface2) 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 40px 20px 28px; text-align: center;
+      animation: slideUp 0.5s ease;
     }
     #money-h1 {
-      font-size: 4rem; font-weight: bold; color: var(--bright);
-      letter-spacing: -1px; transition: color 0.4s;
+      font-size: 4.2rem; font-weight: 700; color: var(--bright);
+      letter-spacing: -2px; transition: color 0.4s, text-shadow 0.4s;
       font-variant-numeric: tabular-nums;
+      text-shadow: 0 2px 10px rgba(0,0,0,0.3);
     }
-    #money-h1.profit { color: var(--green); }
-    #money-h1.loss   { color: var(--red); }
+    #money-h1.profit { color: var(--green); text-shadow: 0 0 30px rgba(16,185,129,0.3); }
+    #money-h1.loss   { color: var(--red); text-shadow: 0 0 30px rgba(239,68,68,0.3); }
 
-    @keyframes pulse-green { 0%,100% { text-shadow: none; } 50% { text-shadow: 0 0 20px rgba(63,185,80,0.5); } }
-    @keyframes pulse-red   { 0%,100% { text-shadow: none; } 50% { text-shadow: 0 0 20px rgba(248,81,73,0.5); } }
-    #money-h1.profit { animation: pulse-green 2s ease infinite; }
-    #money-h1.loss   { animation: pulse-red 2s ease infinite; }
+    @keyframes pulse-green { 0%,100% { text-shadow: 0 0 10px rgba(16,185,129,0.2); } 50% { text-shadow: 0 0 40px rgba(16,185,129,0.5); } }
+    @keyframes pulse-red   { 0%,100% { text-shadow: 0 0 10px rgba(239,68,68,0.2); } 50% { text-shadow: 0 0 40px rgba(239,68,68,0.5); } }
+    #money-h1.profit { animation: pulse-green 3s ease infinite; }
+    #money-h1.loss   { animation: pulse-red 3s ease infinite; }
 
     .hero-sub {
-      margin-top: 10px; display: flex; justify-content: center;
-      gap: 24px; flex-wrap: wrap; font-size: 0.82rem; color: var(--muted);
+      margin-top: 12px; display: flex; justify-content: center;
+      gap: 24px; flex-wrap: wrap; font-size: 0.85rem; color: var(--muted);
     }
     .hero-sub span { white-space: nowrap; }
     .hero-sub .val { color: var(--text); font-weight: bold; }
@@ -556,10 +568,11 @@ async def paper_dashboard() -> HTMLResponse:
     main { padding: 14px 20px; max-width: 1700px; margin: 0 auto; }
 
     /* ── Panel ── */
-    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-bottom: 14px; }
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); transition: box-shadow 0.2s; }
+    .panel:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
     .panel-header {
-      padding: 9px 14px; border-bottom: 1px solid var(--border);
-      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 16px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between; background: var(--surface2);
     }
     .panel-header h2 { font-size: 0.78rem; color: var(--bright); font-weight: bold; }
 
@@ -572,7 +585,7 @@ async def paper_dashboard() -> HTMLResponse:
     }
     td { padding: 7px 10px; border-bottom: 1px solid #1c2128; white-space: nowrap; vertical-align: middle; }
     tr:last-child td { border-bottom: none; }
-    tr:hover td { background: #1c2128; }
+    tr:hover td { background: var(--surface2); transition: background 0.15s; }
     .empty { padding: 28px; text-align: center; color: var(--muted); font-size: 0.78rem; }
 
     /* ── Colors ── */
@@ -632,6 +645,23 @@ async def paper_dashboard() -> HTMLResponse:
     .phase-badge.stopped { background: rgba(248,81,73,0.15); color: var(--red); }
 
     #last-refresh { color: var(--muted); font-size: 0.65rem; }
+
+    /* ── Buttons ── */
+    .btn-sm { padding: 3px 10px; font-size: 0.7rem; border-radius: 6px; background: var(--surface2); color: var(--muted); border: 1px solid var(--border); cursor: pointer; font-family: inherit; transition: all 0.15s; }
+    .btn-sm:hover { border-color: var(--blue); color: var(--blue); background: rgba(59,130,246,0.1); }
+    .btn-action { padding: 5px 14px; border-radius: 6px; background: var(--green); color: #fff; border: none; cursor: pointer; font-family: inherit; font-size: 0.75rem; font-weight: 600; transition: all 0.2s; }
+    .btn-action:hover { background: #059669; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(16,185,129,0.3); }
+    .btn-reset { padding: 5px 14px; border-radius: 6px; background: var(--red); color: #fff; border: none; cursor: pointer; font-family: inherit; font-size: 0.75rem; transition: all 0.2s; }
+    .btn-reset:hover { background: #DC2626; }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+    /* ── Selection ── */
+    ::selection { background: rgba(59,130,246,0.3); color: var(--bright); }
 
     /* Chart Modal */
     .chart-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:1000; }
