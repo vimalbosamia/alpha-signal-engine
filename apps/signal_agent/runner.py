@@ -8,7 +8,7 @@ No trades are executed. Signals are only produced and logged.
 """
 from __future__ import annotations
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from libs.core.config.settings import get_settings
 from libs.core.logging.logger import get_logger, configure_logging
 from libs.core.models.domain import AssetClass, Timeframe
@@ -317,7 +317,7 @@ class SignalRunner:
                             from libs.analysis.bias.engine import BullBearBiasEngine, BiasInput
                             from libs.analysis.regime.engine import RegimeEngine
 
-                            now = datetime.now()
+                            now = datetime.now(timezone.utc)
                             df = await provider.get_candles(sym, Timeframe.FIFTEEN_MIN, now - timedelta(days=3), now)
                             df = CandleBuilder().enrich(df)
 

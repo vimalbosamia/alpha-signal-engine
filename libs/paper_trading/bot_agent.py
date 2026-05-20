@@ -432,10 +432,9 @@ class BotAgent(ABC):
         Uses exponential moving average (alpha=0.3) so recent trades are
         weighted more heavily than old ones.
         """
-        if "pnl" not in result:
+        pnl = result.get("realized_pnl", result.get("pnl"))
+        if pnl is None:
             return
-
-        pnl = result["pnl"]
         alpha = 0.3
 
         if pnl >= 0:

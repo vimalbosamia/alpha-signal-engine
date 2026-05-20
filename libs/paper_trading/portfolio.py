@@ -307,9 +307,12 @@ class PaperPortfolio:
                 continue
             units = trade.position_size_usd / trade.entry_price
             if trade.action == "BUY":
-                total += (price - trade.entry_price) * units
+                pnl = (price - trade.entry_price) * units
             else:
-                total += (trade.entry_price - price) * units
+                pnl = (trade.entry_price - price) * units
+            # Apply leverage for futures
+            pnl *= trade.leverage
+            total += pnl
         return total
 
     # ── Metrics ───────────────────────────────────────────────────────────────

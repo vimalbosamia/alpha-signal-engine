@@ -102,11 +102,12 @@ async def paper_positions() -> JSONResponse:
                 p["live_price"] = live
                 entry = p["entry_price"]
                 size = p["position_size_usd"]
+                lev = p.get("leverage", 1.0) or 1.0
                 units = size / entry if entry else 0
                 if p["action"] == "BUY":
-                    pnl = (live - entry) * units
+                    pnl = (live - entry) * units * lev
                 else:
-                    pnl = (entry - live) * units
+                    pnl = (entry - live) * units * lev
                 pnl_pct = (pnl / size * 100) if size else 0
                 p["unrealized_pnl"] = round(pnl, 4)
                 p["unrealized_pnl_pct"] = round(pnl_pct, 2)
