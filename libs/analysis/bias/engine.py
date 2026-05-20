@@ -74,7 +74,8 @@ class BullBearBiasEngine:
     direction, 5% is shifted from dominant to opposite and conflict increases.
 
     net_bias threshold: a direction must exceed the opposing score by at least
-    NET_BIAS_MARGIN (0.15) to be declared the winner; otherwise "neutral".
+    NET_BIAS_MARGIN (0.05) AND score >= MIN_ABSOLUTE_SCORE (0.35);
+    otherwise "neutral". Prevents weak 26% signals from triggering trades.
     """
 
     # ── Factor weights ────────────────────────────────────────────────────────
@@ -87,6 +88,7 @@ class BullBearBiasEngine:
 
     # ── Decision threshold ────────────────────────────────────────────────────
     NET_BIAS_MARGIN: float = 0.05
+    MIN_ABSOLUTE_SCORE: float = 0.35  # Must score at least 35% to declare direction
 
     # ── HTF conflict penalty ──────────────────────────────────────────────────
     HTF_CONFLICT_SHIFT: float  = 0.05   # points moved from dominant to opposite
@@ -270,15 +272,17 @@ class BullBearBiasEngine:
 
     def _net_bias(self, bull: float, bear: float) -> str:
         """
-        Determine net directional bias using NET_BIAS_MARGIN threshold.
+        Determine net directional bias.
 
-        "bullish"  if bull > bear + margin
-        "bearish"  if bear > bull + margin
-        "neutral"  otherwise
+        Requires BOTH:
+        1. Relative margin: winner > loser + NET_BIAS_MARGIN
+        2. Absolute minimum: winner >= MIN_ABSOLUTE_SCORE (35%)
+
+        This prevents calling "bearish" with 26% score in a trending_up market.
         """
-        if bull > bear + self.NET_BIAS_MARGIN:
+        if bull > bear + self.NET_BIAS_MARGIN and bull >= self.MIN_ABSOLUTE_SCORE:
             return "bullish"
-        if bear > bull + self.NET_BIAS_MARGIN:
+        if bear > bull + self.NET_BIAS_MARGIN and bear >= self.MIN_ABSOLUTE_SCORE:
             return "bearish"
         return "neutral"
 

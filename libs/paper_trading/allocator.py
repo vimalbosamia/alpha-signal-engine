@@ -53,6 +53,7 @@ class CapitalAllocator:
         trade_count: int,
         win_rate: float,
         avg_win_loss_ratio: float,
+        volatility_pct: float = 1.0,
     ) -> float:
         """Compute the dollar position size for a single trade.
 
@@ -95,6 +96,12 @@ class CapitalAllocator:
                 raw = kelly * 0.5 * bot_capital
 
             sized = min(raw, max_trade)
+
+        # Volatility adjustment: reduce size in high-ATR environments
+        if volatility_pct > 5.0:
+            sized *= 0.5  # Cut size in half for extreme volatility
+        elif volatility_pct > 3.0:
+            sized *= 0.75  # Reduce 25% for high volatility
 
         return sized if sized >= MIN_TRADE_SIZE else 0.0
 
