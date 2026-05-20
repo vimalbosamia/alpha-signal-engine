@@ -355,31 +355,56 @@ class SignalRunner:
                                 htf_bias="neutral",
                             ))
 
-                            # Check if bias flipped against any open position on this symbol
+                            # Update bias status + check for 2-check exit on all positions
+                            from libs.paper_trading.bias_exit import (
+                                compute_bias_status,
+                                should_exit_on_bias_flip,
+                            )
+
                             for bot in self._paper_engine.bots:
                                 for trade in list(bot.portfolio.open_trades):
                                     if trade.symbol != sym:
                                         continue
 
-                                    should_close = False
-                                    reason = ""
+                                    # Update live bias fields on trade
+                                    trade.current_bias = new_bias.net_bias
+                                    trade.bias_status = compute_bias_status(
+                                        trade.direction, new_bias.net_bias,
+                                    )
 
-                                    # SELL trade but bias now bullish → close
-                                    if trade.action == "SELL" and new_bias.net_bias == "bullish":
-                                        should_close = True
-                                        reason = f"Bias flipped to BULLISH — closing SELL"
-                                    # BUY trade but bias now bearish → close
-                                    elif trade.action == "BUY" and new_bias.net_bias == "bearish":
-                                        should_close = True
-                                        reason = f"Bias flipped to BEARISH — closing BUY"
+                                    # 2-check exit rule (document 4, section 9)
+                                    should_close, new_count = should_exit_on_bias_flip(
+                                        direction=trade.direction,
+                                        market_mode=trade.market_mode,
+                                        current_bias=new_bias.net_bias,
+                                        bias_adverse_count=trade.bias_adverse_count,
+                                    )
+                                    trade.bias_adverse_count = new_count
 
                                     if should_close:
                                         price = await provider.get_latest_price(sym)
                                         if price:
-                                            result = bot.portfolio.close_trade(trade.id, price, f"REANALYSIS: {reason}")
-                                            log.info("trade_reanalysis_closed",
-                                                     bot=bot.name, symbol=sym, action=trade.action,
-                                                     reason=reason, pnl=result.get("realized_pnl", 0))
+                                            reason = (
+                                                f"Bias flipped to {new_bias.net_bias.upper()} "
+                                                f"for {new_count} checks — closing {trade.direction}"
+                                            )
+                                            trade.exit_reason = reason
+                                            result = bot.portfolio.close_trade(
+                                                trade.id, price, f"BIAS_FLIP: {reason}",
+                                            )
+                                            log.info("trade_bias_flip_closed",
+                                                     bot=bot.name, symbol=sym,
+                                                     direction=trade.direction,
+                                                     market_mode=trade.market_mode,
+                                                     adverse_checks=new_count,
+                                                     new_bias=new_bias.net_bias,
+                                                     pnl=result.get("realized_pnl", 0))
+                                    elif trade.bias_status == "CONFLICT":
+                                        log.info("trade_bias_conflict_warning",
+                                                 bot=bot.name, symbol=sym,
+                                                 direction=trade.direction,
+                                                 adverse_count=new_count,
+                                                 bias=new_bias.net_bias)
 
                         except Exception as sym_exc:
                             log.debug("reanalysis_symbol_error", symbol=sym, error=str(sym_exc))

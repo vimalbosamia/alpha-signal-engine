@@ -178,6 +178,7 @@ class PaperTradingEngine:
                     "liquidation_buffer_percent": getattr(trade, 'liquidation_buffer_percent', 0.0),
                     "bias_status": getattr(trade, 'bias_status', 'unknown'),
                     "current_bias": getattr(trade, 'current_bias', 'unknown'),
+                    "bias_adverse_count": getattr(trade, 'bias_adverse_count', 0),
                 })
         return positions
 

@@ -58,6 +58,7 @@ class VirtualTrade:
     bias_status: str = "unknown"       # ALIGNED | WARNING | CONFLICT | EXIT
     exit_reason: Optional[str] = None  # reason for exit if closed
     risk_rejection_reason: Optional[str] = None  # if rejected, why
+    bias_adverse_count: int = 0        # consecutive reanalysis checks where bias opposes direction
 
 
 # ── Portfolio class ───────────────────────────────────────────────────────────
