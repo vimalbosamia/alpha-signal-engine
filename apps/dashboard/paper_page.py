@@ -807,6 +807,7 @@ async def paper_dashboard() -> HTMLResponse:
             <th>TP1</th>
             <th>Strategy</th>
             <th>Entry Bias</th>
+            <th>Mode</th>
             <th>Since</th>
           </tr>
         </thead>
@@ -1029,6 +1030,7 @@ function renderPositions(positions) {
       <td style="color:var(--green)">${fmt(p.take_profit_1, 4)}</td>
       <td style="color:var(--muted);font-size:0.68rem">${p.strategy_name ?? '—'}</td>
       <td style="font-size:0.68rem"><span style="color:${p.entry_bias==='bullish'?'var(--green)':p.entry_bias==='bearish'?'var(--red)':'var(--muted)'}">${(p.entry_bias||'?').toUpperCase()}</span></td>
+      <td style="font-size:0.68rem">${p.trading_mode === 'futures' || (p.trading_mode||'').includes('futures') ? '<span style="color:var(--yellow);font-weight:bold">⚡ ' + (p.leverage||1) + 'x</span>' : '<span style="color:var(--muted)">SPOT</span>'}</td>
       <td style="color:var(--muted)">${elapsed(p.opened_at)} ago</td>
     </tr>`;
   }).join('');

@@ -40,6 +40,9 @@ class VirtualTrade:
     entry_bias: str = "unknown"        # bullish/bearish/neutral at entry time
     entry_rsi: float = 0.0
     entry_regime: str = "unknown"
+    trading_mode: str = "spot"         # "spot" or "futures"
+    leverage: float = 1.0              # 1.0 for spot, 3-5x for futures
+    liquidation_price: float = 0.0     # estimated liquidation (futures only)
     bias_flip_count: int = 0           # how many times current bias disagreed
 
 
@@ -97,6 +100,17 @@ class PaperPortfolio:
     def loss_count(self) -> int:
         return self._loss_count
 
+    @staticmethod
+    def _calc_liquidation(entry: float, leverage: float, action: str, mode: str) -> float:
+        """Estimate liquidation price for futures. Returns 0 for spot."""
+        if mode != "futures" or leverage <= 1:
+            return 0.0
+        mmr = 0.004  # maintenance margin rate
+        if action.upper() == "BUY":
+            return round(entry * (1 - (1 / leverage) + mmr), 6)
+        else:
+            return round(entry * (1 + (1 / leverage) - mmr), 6)
+
     # ── Trade lifecycle ───────────────────────────────────────────────────────
 
     def open_trade(
@@ -114,6 +128,8 @@ class PaperPortfolio:
         entry_bias: str = "unknown",
         entry_rsi: float = 0.0,
         entry_regime: str = "unknown",
+        trading_mode: str = "spot",
+        leverage: float = 1.0,
     ) -> Optional[str]:
         """
         Open a new virtual trade.
@@ -148,6 +164,9 @@ class PaperPortfolio:
             entry_bias=entry_bias,
             entry_rsi=entry_rsi,
             entry_regime=entry_regime,
+            trading_mode=trading_mode,
+            leverage=leverage,
+            liquidation_price=self._calc_liquidation(entry_price, leverage, action, trading_mode),
         )
 
         self._balance -= total_cost
@@ -185,7 +204,13 @@ class PaperPortfolio:
         else:  # SELL
             gross_pnl = (trade.entry_price - exit_price) * units
 
+        # Apply leverage for futures P&L
+        gross_pnl *= trade.leverage
+
         exit_fee = trade.position_size_usd * FEE_RATE
+        # Futures have lower fees but add funding cost estimate
+        if trade.trading_mode == "futures":
+            exit_fee *= 0.4  # Futures fees ~40% of spot
         net_pnl = gross_pnl - exit_fee
 
         # Return position value + P&L to balance

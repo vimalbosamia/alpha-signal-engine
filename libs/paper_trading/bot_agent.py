@@ -190,6 +190,8 @@ class BotAgent(ABC):
             entry_bias=bias_str,
             entry_rsi=rsi_val,
             entry_regime=regime_str,
+            trading_mode=getattr(signal, 'data_provider', 'spot'),
+            leverage=3.0 if 'futures' in getattr(signal, 'data_provider', '') else 1.0,
         )
 
         if trade_id is None:

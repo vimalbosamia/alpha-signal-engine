@@ -176,6 +176,9 @@ class PaperTradingEngine:
                     "opened_at": trade.opened_at.isoformat(),
                     "entry_bias": getattr(trade, 'entry_bias', 'unknown'),
                     "entry_regime": getattr(trade, 'entry_regime', 'unknown'),
+                    "trading_mode": getattr(trade, 'trading_mode', 'spot'),
+                    "leverage": getattr(trade, 'leverage', 1.0),
+                    "liquidation_price": getattr(trade, 'liquidation_price', 0.0),
                 })
         return positions
 
