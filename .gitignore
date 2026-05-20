@@ -19,3 +19,4 @@ data/audit/
 docs/_build/
 .ipynb_checkpoints/
 .DS_Store
+data/ml_model.pkl
