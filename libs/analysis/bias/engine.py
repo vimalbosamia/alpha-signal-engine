@@ -151,11 +151,16 @@ class BullBearBiasEngine:
         bull += inp.indicator_bullish * self.WEIGHT_INDICATORS
         bear += inp.indicator_bearish * self.WEIGHT_INDICATORS
 
-        # 2. Structure (25%)
+        # 2. Structure (25%, boosted to 40% when strong conviction)
+        # When structure has high strength (>0.7), it's the most reliable
+        # directional signal — recent BOS/CHoCH events are leading indicators
+        struct_weight = self.WEIGHT_STRUCTURE
+        if inp.structure_strength > 0.7:
+            struct_weight = 0.40  # Boost — structure is very confident
         if inp.structure_bias == "bullish":
-            bull += inp.structure_strength * self.WEIGHT_STRUCTURE
+            bull += inp.structure_strength * struct_weight
         elif inp.structure_bias == "bearish":
-            bear += inp.structure_strength * self.WEIGHT_STRUCTURE
+            bear += inp.structure_strength * struct_weight
         # neutral structure contributes nothing directional
 
         # 3. Candles (15%)
