@@ -433,7 +433,6 @@ async def paper_chart_data(symbol: str, timeframe: str = "15m") -> JSONResponse:
 
 # ── HTML Dashboard ────────────────────────────────────────────────────────────
 
-@router.get("/", response_class=HTMLResponse)
 @router.get("/paper", response_class=HTMLResponse)
 async def paper_dashboard() -> HTMLResponse:
     html = """<!DOCTYPE html>

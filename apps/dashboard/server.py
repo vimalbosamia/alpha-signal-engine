@@ -290,7 +290,7 @@ async def manual_scan(
 
 # ── Single-page HTML Dashboard ────────────────────────────────────────────────
 
-@app.get("/signals", response_class=HTMLResponse)  # Old dashboard moved to /signals
+@app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request) -> HTMLResponse:
     settings = get_settings()
     crypto_symbols = settings.signal.crypto_symbols
@@ -639,6 +639,45 @@ async def dashboard(request: Request) -> HTMLResponse:
         </tbody>
       </table>
     </div>
+  </div>
+
+  <!-- Paper Trading Section (embedded) -->
+  <div class="panel" style="margin-bottom:14px">
+    <div class="panel-header">
+      <h2>💰 Paper Trading — Hedge Fund Bots</h2>
+      <a href="/paper" style="color:var(--blue);font-size:0.72rem;text-decoration:none">Open Full View →</a>
+    </div>
+    <div style="padding:10px 14px">
+      <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:12px">
+        <div id="pt-balance" style="font-size:1.8rem;font-weight:bold;color:var(--bright)">$10,000.00</div>
+        <div id="pt-pnl" style="font-size:1rem;color:var(--muted);align-self:center">+$0.00 (0.00%)</div>
+        <div id="pt-positions" style="font-size:0.8rem;color:var(--muted);align-self:center">0 positions</div>
+      </div>
+      <table style="font-size:0.72rem">
+        <thead>
+          <tr><th>Bot</th><th>Symbol</th><th>Side</th><th>Entry</th><th>P&L</th><th>Strategy</th></tr>
+        </thead>
+        <tbody id="pt-tbody">
+          <tr><td colspan="6" class="empty">Loading paper trades...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Signal Preview -->
+  <div class="panel" style="margin-bottom:14px">
+    <div class="panel-header">
+      <h2>🔮 Signal Preview</h2>
+      <button class="rbtn" onclick="loadPtPreview()">Scan</button>
+    </div>
+    <table style="font-size:0.72rem">
+      <thead>
+        <tr><th>Status</th><th>Symbol</th><th>Bias</th><th>Bull</th><th>Bear</th><th>Regime</th><th>RSI</th></tr>
+      </thead>
+      <tbody id="pt-preview">
+        <tr><td colspan="7" class="empty">Loading...</td></tr>
+      </tbody>
+    </table>
   </div>
 
 </main>
@@ -1219,10 +1258,84 @@ function tick() {{
   if (countdown <= 0) refreshAll();
 }}
 
+// ── Paper Trading embedded ───────────────────────────────────────────────────
+async function loadPtSummary() {{
+  try {{
+    const r = await fetch('/api/paper/summary');
+    const d = await r.json();
+    if (d.error) return;
+    const bal = document.getElementById('pt-balance');
+    const pnl = document.getElementById('pt-pnl');
+    const pos = document.getElementById('pt-positions');
+    bal.textContent = '$' + d.total_balance.toLocaleString(undefined, {{minimumFractionDigits:2}});
+    bal.style.color = d.total_pnl >= 0 ? 'var(--green)' : 'var(--red)';
+    const sign = d.total_pnl >= 0 ? '+' : '';
+    pnl.textContent = sign + '$' + d.total_pnl.toFixed(2) + ' (' + sign + d.total_pnl_pct.toFixed(2) + '%)';
+    pnl.style.color = d.total_pnl >= 0 ? 'var(--green)' : 'var(--red)';
+    pos.textContent = d.total_open_positions + ' positions';
+  }} catch(e) {{}}
+}}
+
+async function loadPtPositions() {{
+  try {{
+    const r = await fetch('/api/paper/positions');
+    const d = await r.json();
+    const tbody = document.getElementById('pt-tbody');
+    const positions = d.positions || [];
+    if (!positions.length) {{
+      tbody.innerHTML = '<tr><td colspan="6" class="empty">No open trades</td></tr>';
+      return;
+    }}
+    tbody.innerHTML = positions.slice(0, 10).map(p => {{
+      const pnl = p.unrealized_pnl || 0;
+      const clr = pnl >= 0 ? 'var(--green)' : 'var(--red)';
+      const ac = p.action === 'BUY' ? 'var(--green)' : 'var(--red)';
+      return `<tr>
+        <td style="color:var(--blue)">${{p.bot_name}}</td>
+        <td style="font-weight:bold">${{p.symbol}}</td>
+        <td style="color:${{ac}};font-weight:bold">${{p.action === 'BUY' ? '▲' : '▼'}} ${{p.action}}</td>
+        <td>${{parseFloat(p.entry_price).toFixed(4)}}</td>
+        <td style="color:${{clr}};font-weight:bold">${{pnl >= 0 ? '+' : ''}}$${{pnl.toFixed(2)}}</td>
+        <td style="color:var(--muted);font-size:0.68rem">${{p.strategy_name}}</td>
+      </tr>`;
+    }}).join('');
+  }} catch(e) {{}}
+}}
+
+async function loadPtPreview() {{
+  try {{
+    const r = await fetch('/api/paper/preview');
+    const d = await r.json();
+    const tbody = document.getElementById('pt-preview');
+    const previews = d.previews || [];
+    if (!previews.length) {{
+      tbody.innerHTML = '<tr><td colspan="7" class="empty">No data</td></tr>';
+      return;
+    }}
+    tbody.innerHTML = previews.slice(0, 8).map(p => {{
+      const icon = p.readiness === 'READY' ? '🟢' : p.readiness === 'ALMOST' ? '🟡' : '⚪';
+      const biasClr = p.bias === 'bullish' ? 'var(--green)' : p.bias === 'bearish' ? 'var(--red)' : 'var(--muted)';
+      const bias = p.bias === 'bullish' ? '▲ BULL' : p.bias === 'bearish' ? '▼ BEAR' : '— NEUT';
+      return `<tr>
+        <td>${{icon}} ${{p.readiness}}</td>
+        <td style="font-weight:bold">${{p.symbol}}</td>
+        <td style="color:${{biasClr}};font-weight:bold">${{bias}}</td>
+        <td class="green">${{Math.round((p.bullish||0)*100)}}%</td>
+        <td class="red">${{Math.round((p.bearish||0)*100)}}%</td>
+        <td style="color:var(--muted)">${{p.regime}}</td>
+        <td>${{p.rsi ? p.rsi.toFixed(1) : '—'}}</td>
+      </tr>`;
+    }}).join('');
+  }} catch(e) {{}}
+}}
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 refreshAll();
-startTickerWs();                         // open WebSocket for live prices
-setInterval(tick, 1000);                 // countdown + 15s full refresh
+loadPtSummary(); loadPtPositions(); loadPtPreview();
+startTickerWs();
+setInterval(tick, 1000);
+setInterval(() => {{ loadPtSummary(); loadPtPositions(); }}, 5000);
+setInterval(loadPtPreview, 60000);
 </script>
 </body>
 </html>"""
