@@ -195,6 +195,14 @@ class BotAgent(ABC):
         if trade_id is None:
             return None
 
+        from libs.core.logging.logger import get_logger
+        _log = get_logger(__name__)
+        _log.info("paper_trade_opened",
+                   bot=self.NAME, symbol=signal.symbol, side=signal.action.value,
+                   entry_bias=bias_str, regime=regime_str, strategy=signal.strategy_name,
+                   confidence=round(signal.confidence, 3), size=round(size, 2),
+                   entry_price=entry_price)
+
         return {"trade_id": trade_id, "bot": self.NAME, "size": size}
 
     # ── Exit checking ──────────────────────────────────────────────────────────
@@ -279,8 +287,17 @@ class BotAgent(ABC):
                     hit_management = True
                     mgmt_reason = f"Break-even exit: returned to loss after {hold_minutes:.0f}m"
 
-                # Rule 5: Bias flip tracking — increment counter for reanalysis
-                # (actual flip closing is done by reanalysis loop in runner)
+                # Rule 5: Bias flip — if price consistently moves against entry for 2+ checks
+                # Track via bias_flip_count on the trade object
+                if not hit_management:
+                    if unrealized_pct < -0.1:  # Moving against us
+                        trade.bias_flip_count += 1
+                    else:
+                        trade.bias_flip_count = max(0, trade.bias_flip_count - 1)
+
+                    if trade.bias_flip_count >= 12:  # ~2 min of consistent adverse movement (12 × 10s checks)
+                        hit_management = True
+                        mgmt_reason = f"Sustained adverse movement ({trade.bias_flip_count} checks)"
 
             if hit_sl:
                 status = "STOPPED_OUT"
@@ -301,6 +318,15 @@ class BotAgent(ABC):
             )
             self._update_running_stats(result)
             closed.append(result)
+
+            from libs.core.logging.logger import get_logger
+            _log = get_logger(__name__)
+            _log.info("paper_trade_closed",
+                       bot=self.NAME, symbol=trade.symbol, side=trade.action,
+                       entry_bias=getattr(trade, 'entry_bias', '?'),
+                       pnl=round(result.get('realized_pnl', 0), 4),
+                       status=status, strategy=trade.strategy_name,
+                       exit_reason=mgmt_reason or status)
 
             # Report to shared memory so ALL bots learn
             memory = get_shared_memory()
