@@ -76,10 +76,42 @@ class SignalSettings(BaseSettings):
     max_signals_per_symbol: int = Field(default=5, ge=1)
 
     # Watchlists
-    stock_watchlist: str = "AAPL,MSFT,NVDA,AMD,AMZN,GOOGL,META,TSLA"
-    crypto_watchlist: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,DOGEUSDT,ADAUSDT,AVAXUSDT,DOTUSDT,LINKUSDT,NEARUSDT,SUIUSDT,ATOMUSDT,UNIUSDT,AAVEUSDT,INJUSDT,ARBUSDT,OPUSDT,PEPEUSDT,SHIBUSDT,LTCUSDT,APTUSDT,STXUSDT,IMXUSDT,FETUSDT,RENDERUSDT,TONUSDT,BCHUSDT"
-    futures_watchlist: str = "BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,DOGEUSDT,ADAUSDT,LINKUSDT,DOTUSDT,AVAXUSDT,POLUSDT,LTCUSDT,NEARUSDT,SUIUSDT,APTUSDT,ARBUSDT"
-    macro_watchlist: str = "SPY,QQQ,DIA,IWM,TLT,GLD,VIX"
+    stock_watchlist: str = (
+        "AAPL,MSFT,NVDA,AMD,AMZN,GOOGL,META,TSLA,"
+        "AVGO,SMCI,MU,ARM,PLTR,TSM,"
+        "JPM,GS,BAC,MS,"
+        "NFLX,SHOP,SNOW,CRM,UBER,"
+        "SPY,QQQ,IWM,DIA,SMH,XLF,XLK,"
+        "TLT,GLD"
+    )
+    crypto_watchlist: str = (
+        "BTCUSDT,ETHUSDT,"
+        "SOLUSDT,XRPUSDT,BNBUSDT,DOGEUSDT,ADAUSDT,AVAXUSDT,DOTUSDT,LINKUSDT,"
+        "NEARUSDT,SUIUSDT,ATOMUSDT,UNIUSDT,AAVEUSDT,INJUSDT,"
+        "ARBUSDT,OPUSDT,IMXUSDT,"
+        "PEPEUSDT,SHIBUSDT,"
+        "LTCUSDT,APTUSDT,STXUSDT,FETUSDT,RENDERUSDT,TONUSDT,BCHUSDT,"
+        "POLUSDT"
+    )
+    futures_watchlist: str = (
+        "BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,"
+        "XRPUSDT,DOGEUSDT,ADAUSDT,LINKUSDT,DOTUSDT,AVAXUSDT,"
+        "POLUSDT,LTCUSDT,NEARUSDT,SUIUSDT,APTUSDT,ARBUSDT,"
+        "INJUSDT,FETUSDT,RENDERUSDT,TONUSDT"
+    )
+    macro_watchlist: str = (
+        "SPY,QQQ,DIA,IWM,"
+        "TLT,IEF,"
+        "GLD,SLV,USO,"
+        "VIX,UVXY,"
+        "SMH,XLF,XLK,"
+        "DXY"
+    )
+    market_leaders: str = (
+        "SPY,QQQ,"
+        "AAPL,MSFT,NVDA,"
+        "BTCUSDT,ETHUSDT"
+    )
     enable_futures: bool = True
 
     # Dynamic universe
@@ -140,6 +172,14 @@ class SignalSettings(BaseSettings):
     @property
     def futures_symbols(self) -> list[str]:
         return [s.strip() for s in self.futures_watchlist.split(",") if s.strip()]
+
+    @property
+    def macro_symbols(self) -> list[str]:
+        return [s.strip() for s in self.macro_watchlist.split(",") if s.strip()]
+
+    @property
+    def leader_symbols(self) -> list[str]:
+        return [s.strip() for s in self.market_leaders.split(",") if s.strip()]
 
 
 # ── Risk settings ─────────────────────────────────────────────────────────────
