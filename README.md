@@ -106,6 +106,50 @@ tests/
 
 ---
 
+## Market Participation Matrix
+
+The system classifies each symbol into a market state and decides which trading modes are permitted:
+
+| Market State | SPOT | Futures LONG | Futures SHORT | Confidence | Size |
+|---|---|---|---|---|---|
+| **STRONG_BULL** | ON | ON | OFF | 100% | 100% |
+| **WEAK_BULL** | ON | ON | OFF | 85% | 80% |
+| **NEUTRAL** | OFF | OFF | OFF | 0% | 0% |
+| **WEAK_BEAR** | OFF | OFF | ON | 85% | 70% |
+| **STRONG_BEAR** | OFF | OFF | ON | 100% | 80% |
+| **HIGH_VOLATILITY** | OFF | OFF | OFF | 0% | 0% |
+| **NEWS_LOCKDOWN** | OFF | OFF | OFF | 0% | 0% |
+| **TREND_TRANSITION** | OFF | OFF | OFF | 50% | 50% |
+
+Example (live FOMC day):
+
+| Symbol | State | SPOT | FUT L | FUT S | Result |
+|---|---|---|---|---|---|
+| AAPL | STRONG_BULL | ON | ON | OFF | Trade opened (BUY) |
+| MSFT | WEAK_BULL | ON | ON | OFF | Trade opened (BUY) |
+| NVDA | WEAK_BEAR | OFF | OFF | ON | SPOT blocked, futures short allowed |
+| BTCUSDT | NEUTRAL | OFF | OFF | OFF | All blocked (conflict 0.97) |
+| ETHUSDT | NEUTRAL | OFF | OFF | OFF | All blocked |
+
+Classification uses: BullBearBias scores, ADX trend strength, conflict score, macro event calendar, volatility flags.
+
+---
+
+## Spot vs Futures Separation
+
+| Concept | SPOT / EQUITY | FUTURES |
+|---|---|---|
+| **Shorting** | Not allowed | Allowed (OPEN_SHORT) |
+| **Leverage** | 1x always | 1-5x (default 3x) |
+| **Liquidation** | N/A | Calculated + buffer check |
+| **TP/SL validation** | SL < entry, TP > entry | Direction-aware |
+| **Market mode** | SPOT (crypto) / EQUITY (stocks) | FUTURES |
+| **Position intent** | OPEN_LONG / CLOSE_LONG only | All intents |
+
+Bias flip auto-exit: if live bias opposes direction for 2 consecutive 5-minute checks, position is auto-closed.
+
+---
+
 ## Requirements
 
 - Python 3.12+
