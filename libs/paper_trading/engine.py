@@ -68,16 +68,25 @@ class PaperTradingEngine:
     # ── Signal dispatch ────────────────────────────────────────────────────────
 
     def dispatch_signal(self, signal: SignalOutput) -> list[dict]:
-        """Fan signal out to all bots.
+        """Fan signal out to bots. Max 1 position per symbol across ALL bots.
 
-        Returns a list of trade-result dicts for every bot that opened a trade.
-        Bots that skip the signal return None from on_signal and are excluded.
+        Cross-bot dedup: if ANY bot already holds this symbol, skip all others.
         """
+        # Cross-bot dedup check
+        all_open_symbols = set()
+        for bot in self._bots:
+            for trade in bot.portfolio.open_trades:
+                all_open_symbols.add(trade.symbol)
+
+        if signal.symbol in all_open_symbols:
+            return []  # Already held by some bot
+
         results: list[dict] = []
         for bot in self._bots:
             result = bot.on_signal(signal)
             if result is not None:
                 results.append(result)
+                break  # First bot to take it wins — no duplicates
         return results
 
     # ── Exit checking ──────────────────────────────────────────────────────────
@@ -165,6 +174,8 @@ class PaperTradingEngine:
                     "take_profit_2": trade.take_profit_2,
                     "strategy_name": trade.strategy_name,
                     "opened_at": trade.opened_at.isoformat(),
+                    "entry_bias": getattr(trade, 'entry_bias', 'unknown'),
+                    "entry_regime": getattr(trade, 'entry_regime', 'unknown'),
                 })
         return positions
 

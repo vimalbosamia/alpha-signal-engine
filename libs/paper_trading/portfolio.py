@@ -37,6 +37,10 @@ class VirtualTrade:
     strategy_name: str
     signal_id: str
     opened_at: datetime
+    entry_bias: str = "unknown"        # bullish/bearish/neutral at entry time
+    entry_rsi: float = 0.0
+    entry_regime: str = "unknown"
+    bias_flip_count: int = 0           # how many times current bias disagreed
 
 
 # ── Portfolio class ───────────────────────────────────────────────────────────
@@ -107,6 +111,9 @@ class PaperPortfolio:
         take_profit_2: Optional[float],
         strategy_name: str,
         signal_id: str,
+        entry_bias: str = "unknown",
+        entry_rsi: float = 0.0,
+        entry_regime: str = "unknown",
     ) -> Optional[str]:
         """
         Open a new virtual trade.
@@ -138,6 +145,9 @@ class PaperPortfolio:
             strategy_name=strategy_name,
             signal_id=signal_id,
             opened_at=datetime.now(timezone.utc),
+            entry_bias=entry_bias,
+            entry_rsi=entry_rsi,
+            entry_regime=entry_regime,
         )
 
         self._balance -= total_cost

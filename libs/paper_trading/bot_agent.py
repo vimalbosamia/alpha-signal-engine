@@ -164,6 +164,18 @@ class BotAgent(ABC):
         # Use mid-point of entry zone as entry price
         entry_price = (signal.entry_zone_low + signal.entry_zone_high) / 2.0
 
+        # Extract entry-time bias snapshot
+        bias_str = "unknown"
+        rsi_val = 0.0
+        regime_str = "unknown"
+        try:
+            bias_str = signal.market_regime.value if hasattr(signal, 'setup_grade') else "unknown"
+            if hasattr(signal, 'confluence') and signal.confluence:
+                bias_str = "bullish" if signal.action.value == "BUY" else "bearish"
+            regime_str = signal.market_regime.value if hasattr(signal.market_regime, 'value') else str(signal.market_regime)
+        except Exception:
+            pass
+
         trade_id = self._portfolio.open_trade(
             symbol=signal.symbol,
             asset_class=signal.asset_class.value,
@@ -175,6 +187,9 @@ class BotAgent(ABC):
             take_profit_2=signal.take_profit_2,
             strategy_name=signal.strategy_name,
             signal_id=str(signal.signal_id),
+            entry_bias=bias_str,
+            entry_rsi=rsi_val,
+            entry_regime=regime_str,
         )
 
         if trade_id is None:
@@ -260,10 +275,12 @@ class BotAgent(ABC):
                     mgmt_reason = f"Cutting loss: {unrealized_pct:.2f}% after {hold_minutes:.0f}m"
 
                 # Rule 4: Break-even exit — if profitable then comes back to entry
-                # Was up > 0.3% but now flat/negative → protect capital
                 if not hit_management and unrealized_pct < 0 and hold_minutes > 20:
                     hit_management = True
                     mgmt_reason = f"Break-even exit: returned to loss after {hold_minutes:.0f}m"
+
+                # Rule 5: Bias flip tracking — increment counter for reanalysis
+                # (actual flip closing is done by reanalysis loop in runner)
 
             if hit_sl:
                 status = "STOPPED_OUT"
