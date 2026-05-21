@@ -46,11 +46,14 @@ class PaperTradingEngine:
         self._equity_snapshots: list[dict] = []
         self._bots: list[BotAgent] = self._create_bots(initial_capital)
 
-        log.info(
-            "paper_trading_engine_init",
-            bots=len(self._bots),
-            initial_capital=initial_capital,
-        )
+        # Restore saved state if available
+        from libs.paper_trading.state_persistence import restore_all, has_saved_state
+        if has_saved_state():
+            restore_all(self)
+            log.info("paper_trading_engine_restored", bots=len(self._bots))
+        else:
+            log.info("paper_trading_engine_init_fresh",
+                     bots=len(self._bots), initial_capital=initial_capital)
 
     # ── Internal helpers ───────────────────────────────────────────────────────
 
@@ -90,6 +93,13 @@ class PaperTradingEngine:
         for bot in self._bots:
             closed = bot.check_exits(live_prices)
             all_closed.extend(closed)
+        # Save state after any trade closes
+        if all_closed:
+            try:
+                from libs.paper_trading.state_persistence import save_all
+                save_all(self)
+            except Exception:
+                pass
         return all_closed
 
     @staticmethod
@@ -228,6 +238,13 @@ class PaperTradingEngine:
         if len(self._equity_snapshots) > 2000:
             self._equity_snapshots = self._equity_snapshots[-2000:]
 
+        # Auto-save state to disk every equity snapshot
+        try:
+            from libs.paper_trading.state_persistence import save_all
+            save_all(self)
+        except Exception:
+            pass
+
     # ── Pause / resume ─────────────────────────────────────────────────────────
 
     def pause_bot(self, bot_name: str) -> bool:
@@ -257,6 +274,12 @@ class PaperTradingEngine:
         self._bots = self._create_bots(self._initial_capital)
         self._equity_snapshots = []
         self._started_at = datetime.now(timezone.utc)
+        # Clear saved state — fresh start
+        try:
+            import shutil
+            shutil.rmtree("data/paper_state", ignore_errors=True)
+        except Exception:
+            pass
         log.info("paper_trading_engine_reset", initial_capital=self._initial_capital)
 
     # ── Async EventBus integration ─────────────────────────────────────────────
