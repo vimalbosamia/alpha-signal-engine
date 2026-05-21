@@ -53,6 +53,44 @@ class PaperTradeRecord(Base):
     # OPEN | CLOSED | FORCE_CLOSED
     status: Mapped[str] = mapped_column(String(20), default="OPEN")
 
+    # ── Market context at entry time (for self-training) ─────────────
+    timeframe: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    market_regime: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    entry_rsi: Mapped[float | None] = mapped_column(Float, nullable=True)
+    entry_macd_histogram: Mapped[float | None] = mapped_column(Float, nullable=True)
+    entry_ema_structure: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    entry_atr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    entry_atr_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    entry_bollinger_pct_b: Mapped[float | None] = mapped_column(Float, nullable=True)
+    entry_adx: Mapped[float | None] = mapped_column(Float, nullable=True)
+    entry_vwap_deviation_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    entry_volume_relative: Mapped[float | None] = mapped_column(Float, nullable=True)
+    entry_volume_trend: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    entry_orderflow_bias: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    entry_liquidity_state: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    entry_news_sentiment: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    entry_macro_environment: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    entry_dxy_trend: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    entry_bond_yield_trend: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    entry_btc_dominance_trend: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    entry_fear_greed_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    entry_session: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    entry_spread_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    entry_funding_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    entry_open_interest_trend: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    entry_patterns: Mapped[str | None] = mapped_column(Text, nullable=True)
+    entry_confluence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    entry_bias_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    entry_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    setup_grade: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    leverage: Mapped[float | None] = mapped_column(Float, nullable=True)
+    trading_mode: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    slippage_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    execution_latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Exit context
+    drawdown_impact_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    trade_quality_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+
 
 class PaperBotStatsRecord(Base):
     """Running statistics for a single paper-trading bot."""
