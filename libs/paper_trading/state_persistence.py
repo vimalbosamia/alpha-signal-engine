@@ -328,6 +328,19 @@ def restore_bot(bot, state: dict) -> None:
                 bias_adverse_count=td.get("bias_adverse_count", 0),
                 current_bias=td.get("current_bias", "unknown"),
                 bias_status=td.get("bias_status", "unknown"),
+                # MFE/MAE tracking
+                mfe=td.get("mfe", 0.0),
+                mae=td.get("mae", 0.0),
+                mfe_price=td.get("mfe_price", 0.0),
+                mae_price=td.get("mae_price", 0.0),
+                # Self-training context
+                market_context=td.get("market_context"),
+                entry_patterns=td.get("entry_patterns"),
+                entry_confidence=td.get("entry_confidence"),
+                exit_reason=td.get("exit_reason"),
+                risk_rejection_reason=td.get("risk_rejection_reason"),
+                margin_used=td.get("margin_used", 0.0),
+                funding_rate_at_entry=td.get("funding_rate_at_entry"),
             )
             portfolio._open_trades.append(trade)
         except Exception as exc:

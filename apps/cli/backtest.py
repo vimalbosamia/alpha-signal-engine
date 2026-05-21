@@ -81,10 +81,10 @@ def _load_df(
 
         # Lazy import to avoid hard dependency when credentials are absent
         if asset_class == AssetClass.CRYPTO:
-            from libs.data.providers.binance_provider import BinanceDataProvider
+            from libs.data.providers.binance.provider import BinanceDataProvider
             provider: BaseDataProvider = BinanceDataProvider()
         else:
-            from libs.data.providers.alpaca_provider import AlpacaDataProvider
+            from libs.data.providers.alpaca.provider import AlpacaDataProvider
             provider = AlpacaDataProvider()
 
         df = asyncio.run(provider.get_candles(symbol, timeframe, start, now))

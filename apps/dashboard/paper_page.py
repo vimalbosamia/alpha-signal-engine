@@ -1727,7 +1727,7 @@ async function loadPreview() {
         <td style="color:${p.conflict>0.8?'var(--red)':p.conflict>0.5?'var(--yellow)':'var(--green)'}">${((p.conflict||0)*100).toFixed(0)}%</td>
         <td style="color:${rsiClr}">${p.rsi||'—'}</td>
         <td>${p.adx||'—'}</td>
-        <td>\$${p.price||'—'}</td>
+        <td>$$${p.price||'—'}</td>
       </tr>`;
     }).join('');
   } catch(e) {
