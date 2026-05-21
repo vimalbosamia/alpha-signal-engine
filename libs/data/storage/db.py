@@ -17,8 +17,16 @@ def get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
         settings = get_settings()
+        # Auto-create data directory if using SQLite
+        db_url = settings.storage.database_url
+        if "sqlite" in db_url:
+            import os
+            # Extract path from URL like "sqlite+aiosqlite:///./data/signals.db"
+            db_path = db_url.split("///")[-1] if "///" in db_url else ""
+            if db_path:
+                os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
         _engine = create_async_engine(
-            settings.storage.database_url,
+            db_url,
             echo=False,
             future=True,
         )
