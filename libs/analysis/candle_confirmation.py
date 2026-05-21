@@ -17,28 +17,32 @@ from __future__ import annotations
 import pandas as pd
 
 
-MIN_CONFIRMING_CANDLES: int = 2
-MIN_BODY_RATIO: float = 0.40  # body must be 40%+ of high-low range
+MIN_BODY_RATIO: float = 0.30  # body must be 30%+ of high-low range
 
 
 def is_candle_confirmed(
     df: pd.DataFrame,
     direction: str,
-    lookback: int = MIN_CONFIRMING_CANDLES,
+    lookback: int = 3,
 ) -> tuple[bool, str]:
     """
     Check if recent candles confirm the proposed trade direction.
 
+    Relaxed rules (avoids blocking everything):
+      - If last candle matches direction with strong body → confirmed
+      - If 2 of last 3 candles match direction → confirmed
+      - Only reject if last candle STRONGLY contradicts (body > 50% opposing)
+
     Args:
         df: OHLCV DataFrame (must have open, high, low, close columns)
         direction: "BUY" or "SELL"
-        lookback: number of recent candles to check (default 2)
+        lookback: number of recent candles to check (default 3)
 
     Returns:
         (confirmed, reason)
     """
     if len(df) < lookback + 1:
-        return False, "insufficient_candles"
+        return True, "insufficient_candles_allow"  # don't block on low data
 
     recent = df.iloc[-lookback:]
 
@@ -49,29 +53,38 @@ def is_candle_confirmed(
         if candle_range <= 0:
             continue
 
-        body = abs(c - o)
-        body_ratio = body / candle_range
         is_bullish = c > o
         is_bearish = c < o
 
-        # Check direction match + body strength
-        if direction.upper() == "BUY" and is_bullish and body_ratio >= MIN_BODY_RATIO:
+        if direction.upper() == "BUY" and is_bullish:
             confirming += 1
-        elif direction.upper() == "SELL" and is_bearish and body_ratio >= MIN_BODY_RATIO:
+        elif direction.upper() == "SELL" and is_bearish:
             confirming += 1
 
-    if confirming >= lookback:
+    # 2 of 3 candles match → confirmed
+    if confirming >= 2:
         return True, "confirmed"
 
-    # Check if last candle contradicts
+    # Last candle matches with decent body → confirmed
     last = df.iloc[-1]
-    last_bullish = float(last["close"]) > float(last["open"])
-    if direction.upper() == "BUY" and not last_bullish:
-        return False, "last_candle_bearish"
-    if direction.upper() == "SELL" and last_bullish:
-        return False, "last_candle_bullish"
+    last_o, last_h, last_l, last_c = float(last["open"]), float(last["high"]), float(last["low"]), float(last["close"])
+    last_range = last_h - last_l
+    last_body_ratio = abs(last_c - last_o) / last_range if last_range > 0 else 0
+    last_bullish = last_c > last_o
 
-    return False, f"only_{confirming}_of_{lookback}_confirmed"
+    if direction.upper() == "BUY" and last_bullish and last_body_ratio >= MIN_BODY_RATIO:
+        return True, "last_candle_confirmed"
+    if direction.upper() == "SELL" and not last_bullish and last_body_ratio >= MIN_BODY_RATIO:
+        return True, "last_candle_confirmed"
+
+    # Only hard-reject if last candle STRONGLY contradicts (big body opposing)
+    if direction.upper() == "BUY" and not last_bullish and last_body_ratio > 0.50:
+        return False, "last_candle_strong_bearish"
+    if direction.upper() == "SELL" and last_bullish and last_body_ratio > 0.50:
+        return False, "last_candle_strong_bullish"
+
+    # Weak/doji last candle — allow (not a strong contradiction)
+    return True, "weak_candle_allow"
 
 
 def get_candle_momentum(df: pd.DataFrame, lookback: int = 3) -> dict:
