@@ -27,16 +27,19 @@ from libs.core.models.domain import AssetClass, Timeframe
 
 log = get_logger(__name__)
 
-# Top symbols for training — covers majors + mid-caps for diverse patterns
+# Full crypto watchlist for training — matches settings.py crypto_watchlist
 DEFAULT_TRAINING_SYMBOLS = [
-    "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
-    "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "DOTUSDT", "LINKUSDT",
-    "NEARUSDT", "SUIUSDT", "ATOMUSDT", "UNIUSDT", "INJUSDT",
-    "ARBUSDT", "LTCUSDT", "APTUSDT", "FETUSDT", "RENDERUSDT",
+    "BTCUSDT", "ETHUSDT",
+    "SOLUSDT", "XRPUSDT", "BNBUSDT", "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "DOTUSDT", "LINKUSDT",
+    "NEARUSDT", "SUIUSDT", "ATOMUSDT", "UNIUSDT", "AAVEUSDT", "INJUSDT",
+    "ARBUSDT", "OPUSDT", "IMXUSDT",
+    "PEPEUSDT", "SHIBUSDT",
+    "LTCUSDT", "APTUSDT", "STXUSDT", "FETUSDT", "RENDERUSDT", "TONUSDT", "BCHUSDT",
+    "POLUSDT",
 ]
 
-# Multiple timeframes for richer training
-DEFAULT_TIMEFRAMES = ["15m", "1h", "4h"]
+# Multiple timeframes for richer training — 5m through 1d
+DEFAULT_TIMEFRAMES = ["5m", "15m", "30m", "1h", "4h", "1d"]
 
 
 @dataclass
