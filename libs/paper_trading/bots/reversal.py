@@ -1,46 +1,32 @@
 """
-ReversalBot — fades exhausted moves at key reversal patterns.
+ReversalBot — targets candle reversal setups at extremes.
 
-Accepts signals when ALL of:
-  - Strategy is in the known reversal set
-  - Signal has at least one recognised reversal pattern
-  - Market regime is NOT RANGING_HIGH_VOL (choppy)
-  - Timeframe is M15 or H1
+Accepts signals when:
+  - Strategy is a reversal variant
+  - R:R >= 2.0 (reversals need room)
+  - Confidence >= 0.30
+  - At least 1 reversal pattern detected
 """
 from __future__ import annotations
 
-from libs.core.models.domain import MarketRegime, SignalOutput, Timeframe
+from libs.core.models.domain import SignalOutput
 from libs.paper_trading.bot_agent import BotAgent
 
 _STRATEGIES: frozenset[str] = frozenset({
-    "hammer_reversal", "shooting_star_reversal", "candlestick_reversal",
-    "failed_breakout_reversal", "liquidity_sweep",
+    "hammer_reversal", "shooting_star_reversal", "engulfing_reversal",
+    "morning_star_reversal", "evening_star_reversal", "doji_reversal",
+    "double_bottom", "double_top", "rsi_divergence",
 })
 
 _REVERSAL_PATTERNS: frozenset[str] = frozenset({
-    "hammer",
-    "inverted_hammer",
-    "shooting_star",
-    "hanging_man",
-    "bullish_engulfing",
-    "bearish_engulfing",
-    "morning_star",
-    "evening_star",
-    "pin_bar",
-    "rejection_candle",
-    "tweezer_top",
-    "tweezer_bottom",
+    "hammer", "inverted_hammer", "shooting_star", "hanging_man",
+    "bullish_engulfing", "bearish_engulfing", "morning_star", "evening_star",
+    "doji", "dragonfly_doji", "gravestone_doji", "piercing_line",
+    "dark_cloud_cover", "tweezer_top", "tweezer_bottom",
 })
 
-_SKIP_REGIMES: frozenset[MarketRegime] = frozenset({MarketRegime.RANGING_HIGH_VOL})
-
-_ALLOWED_TIMEFRAMES: frozenset[Timeframe] = frozenset({
-    Timeframe.FIVE_MIN,
-    Timeframe.FIFTEEN_MIN,
-    Timeframe.THIRTY_MIN,
-    Timeframe.ONE_HOUR,
-    Timeframe.FOUR_HOUR,
-})
+_MIN_CONFIDENCE: float = 0.30
+_MIN_RR: float = 2.0
 
 
 class ReversalBot(BotAgent):
@@ -49,4 +35,13 @@ class ReversalBot(BotAgent):
     NAME = "ReversalBot"
 
     def should_take_signal(self, signal: SignalOutput) -> bool:
-        return signal.strategy_name in _STRATEGIES
+        if signal.strategy_name not in _STRATEGIES:
+            return False
+        if signal.confidence < _MIN_CONFIDENCE:
+            return False
+        if signal.estimated_risk_reward < _MIN_RR:
+            return False
+        # Require at least 1 reversal pattern
+        if not any(p in _REVERSAL_PATTERNS for p in signal.patterns_detected):
+            return False
+        return True

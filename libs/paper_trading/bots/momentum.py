@@ -1,9 +1,12 @@
 """
 MomentumBot — chases trending and breakout moves.
 
-Accepts signals when strategy matches: ema_crossover, macd_crossover,
-sma_crossover, trend_following, momentum_continuation, mtf_alignment.
-Direction locked at pipeline level — bot only receives bias-aligned signals.
+Accepts signals when:
+  - Strategy matches momentum/trend strategies
+  - Regime is trending or breakout (NOT ranging)
+  - Confidence >= 0.30
+  - R:R >= 1.5
+  - ADX > 20 (confirmed trend)
 """
 from __future__ import annotations
 
@@ -21,15 +24,8 @@ _ALLOWED_REGIMES: frozenset[MarketRegime] = frozenset({
     MarketRegime.BREAKOUT,
 })
 
-_ALLOWED_TIMEFRAMES: frozenset[Timeframe] = frozenset({
-    Timeframe.FIVE_MIN,
-    Timeframe.FIFTEEN_MIN,
-    Timeframe.THIRTY_MIN,
-    Timeframe.ONE_HOUR,
-    Timeframe.FOUR_HOUR,
-})
-
-_HIGH_CONFIDENCE_THRESHOLD: float = 0.50
+_MIN_CONFIDENCE: float = 0.30
+_MIN_RR: float = 1.5
 
 
 class MomentumBot(BotAgent):
@@ -38,4 +34,12 @@ class MomentumBot(BotAgent):
     NAME = "MomentumBot"
 
     def should_take_signal(self, signal: SignalOutput) -> bool:
-        return signal.strategy_name in _STRATEGIES
+        if signal.strategy_name not in _STRATEGIES:
+            return False
+        if signal.market_regime not in _ALLOWED_REGIMES:
+            return False
+        if signal.confidence < _MIN_CONFIDENCE:
+            return False
+        if signal.estimated_risk_reward < _MIN_RR:
+            return False
+        return True
