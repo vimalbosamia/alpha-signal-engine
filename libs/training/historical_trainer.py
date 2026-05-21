@@ -149,6 +149,15 @@ class HistoricalTrainer:
         timeframes = timeframes or DEFAULT_TIMEFRAMES
 
         coordinator = get_coordinator()
+
+        # Restore existing learning state before training so we build on prior progress
+        try:
+            from libs.paper_trading.state_persistence import _restore_learning_systems
+            _restore_learning_systems()
+            log.info("training.restored_prior_state")
+        except Exception as exc:
+            log.debug("training.no_prior_state", error=str(exc))
+
         phase_before = coordinator.current_phase.name
 
         provider = HistoricalDataProvider(data_dir=self._data_dir)

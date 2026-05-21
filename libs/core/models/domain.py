@@ -184,6 +184,16 @@ class MarketRegime(str, Enum):
     RANGING_HIGH_VOL = "ranging_high_vol"
     BREAKOUT = "breakout"
     CLIMACTIC = "climactic"
+    ACCUMULATION = "accumulation"
+    DISTRIBUTION = "distribution"
+    PANIC_SELLOFF = "panic_selloff"
+    LIQUIDATION_EVENT = "liquidation_event"
+    REVERSAL = "reversal"
+    LOW_LIQUIDITY = "low_liquidity"
+    COMPRESSION = "compression"
+    EXPANSION = "expansion"
+    NEWS_DRIVEN = "news_driven"
+    MEAN_REVERSION = "mean_reversion"
     UNKNOWN = "unknown"
 
 

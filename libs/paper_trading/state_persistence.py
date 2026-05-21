@@ -177,6 +177,18 @@ def _save_learning_systems() -> None:
     except Exception:
         pass
 
+    try:
+        from libs.learning.vector_memory import get_vector_memory
+        get_vector_memory().save(os.path.join(learning_dir, "vector_memory.json"))
+    except Exception:
+        pass
+
+    try:
+        from libs.learning.rl_engine import get_rl_engine
+        get_rl_engine().save(os.path.join(learning_dir, "rl_engine.json"))
+    except Exception:
+        pass
+
 
 def _restore_learning_systems() -> None:
     """Restore all self-training subsystem state from disk."""
@@ -205,6 +217,18 @@ def _restore_learning_systems() -> None:
     try:
         from libs.learning.coordinator import get_coordinator
         get_coordinator().load(os.path.join(learning_dir, "coordinator.json"))
+    except Exception:
+        pass
+
+    try:
+        from libs.learning.vector_memory import get_vector_memory
+        get_vector_memory().load(os.path.join(learning_dir, "vector_memory.json"))
+    except Exception:
+        pass
+
+    try:
+        from libs.learning.rl_engine import get_rl_engine
+        get_rl_engine().load(os.path.join(learning_dir, "rl_engine.json"))
     except Exception:
         pass
 

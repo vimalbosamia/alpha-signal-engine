@@ -37,10 +37,26 @@ STRATEGY_MAP: dict[str, int] = {
 }
 
 REGIME_MAP: dict[str, int] = {
-    "trending_up":    3,
-    "ranging":        2,
-    "volatile":       1,
-    "trending_down":  0,
+    "trending_up":        0,
+    "trending_down":      1,
+    "ranging_low_vol":    2,
+    "ranging_high_vol":   3,
+    "breakout":           4,
+    "climactic":          5,
+    "accumulation":       6,
+    "distribution":       7,
+    "panic_selloff":      8,
+    "liquidation_event":  9,
+    "reversal":           10,
+    "low_liquidity":      11,
+    "compression":        12,
+    "expansion":          13,
+    "news_driven":        14,
+    "mean_reversion":     15,
+    "unknown":            16,
+    # Legacy aliases for backward compatibility
+    "ranging":            2,
+    "volatile":           3,
 }
 
 FEATURE_NAMES = [

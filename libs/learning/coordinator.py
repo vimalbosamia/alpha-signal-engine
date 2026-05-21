@@ -125,6 +125,7 @@ class SelfTrainingCoordinator:
         disciplined_exit: bool = True,
         regime_aligned: bool = True,
         force_all: bool = False,
+        **kwargs: Any,
     ) -> None:
         """Process a closed trade, dispatching to active subsystems.
 
@@ -207,6 +208,57 @@ class SelfTrainingCoordinator:
                     "coordinator.reward_engine_error",
                     error=str(exc),
                 )
+
+            # Q-learning RL engine
+            try:
+                from libs.learning.rl_engine import get_rl_engine
+                rl = get_rl_engine()
+                rl.learn_from_trade(
+                    regime=regime,
+                    atr_pct=kwargs.get("atr_pct", 1.0),
+                    ema_ratio=kwargs.get("ema_ratio", 1.0),
+                    strategy=strategy,
+                    size_bucket=kwargs.get("size_bucket", "normal"),
+                    pnl=pnl,
+                    rr=rr,
+                    won=won,
+                    disciplined_exit=disciplined_exit,
+                    regime_aligned=regime_aligned,
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.warning(
+                    "coordinator.rl_engine_error",
+                    error=str(exc),
+                )
+
+        # Vector memory — store trade context for similarity retrieval
+        try:
+            from libs.learning.vector_memory import get_vector_memory
+            import uuid
+            vm = get_vector_memory()
+            vm.store(
+                context=kwargs.get("market_context", {
+                    "rsi": kwargs.get("rsi", 50.0),
+                    "macd_histogram": kwargs.get("macd_histogram", 0.0),
+                    "atr_pct": kwargs.get("atr_pct", 0.0),
+                    "volume_ratio": kwargs.get("volume_ratio", 1.0),
+                    "regime": regime,
+                    "ema_alignment": kwargs.get("ema_ratio", 1.0),
+                }),
+                trade_id=kwargs.get("trade_id", str(uuid.uuid4())),
+                symbol=kwargs.get("symbol", ""),
+                strategy=strategy,
+                won=won,
+                pnl=pnl,
+                rr=rr,
+                regime=regime,
+                timestamp=kwargs.get("timestamp", ""),
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "coordinator.vector_memory_error",
+                error=str(exc),
+            )
 
         # Auto-tune at interval
         if self._total_trades % self._tune_interval == 0:
@@ -352,13 +404,25 @@ class SelfTrainingCoordinator:
         except Exception:  # noqa: BLE001
             pass
 
+        try:
+            from libs.learning.vector_memory import get_vector_memory
+            report["vector_memory_stats"] = get_vector_memory().get_stats()
+        except Exception:  # noqa: BLE001
+            pass
+
+        try:
+            from libs.learning.rl_engine import get_rl_engine
+            report["rl_engine_stats"] = get_rl_engine().get_stats()
+        except Exception:  # noqa: BLE001
+            pass
+
         return report
 
     # ── Active Subsystems ─────────────────────────────────────────────────────
 
     def _active_subsystems(self) -> list[str]:
         """Return the list of active subsystem names for the current phase."""
-        active: list[str] = []
+        active: list[str] = ["vector_memory"]  # always active
         phase = self._current_phase
 
         if phase >= TrainingPhase.STATISTICAL_LEARNING:
@@ -366,7 +430,7 @@ class SelfTrainingCoordinator:
         if phase >= TrainingPhase.ADAPTIVE_OPTIMIZATION:
             active.append("strategy_tuner")
         if phase >= TrainingPhase.REINFORCEMENT_LEARNING:
-            active.append("reward_engine")
+            active.extend(["reward_engine", "rl_engine"])
 
         return active
 
