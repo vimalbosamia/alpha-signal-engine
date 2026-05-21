@@ -46,8 +46,15 @@ DEFAULT_FUTURES_SYMBOLS = [
     "INJUSDT", "FETUSDT", "RENDERUSDT", "TONUSDT",
 ]
 
-# Multiple timeframes for richer training — 5m through 1d
-DEFAULT_TIMEFRAMES = ["5m", "15m", "30m", "1h", "4h", "1d"]
+# Multiple timeframes for richer training — match available data
+DEFAULT_TIMEFRAMES = ["15m", "1h", "4h"]
+
+# Fast mode: top 6 strategies that generate most signals
+FAST_STRATEGIES_NAMES = {
+    "ema_crossover", "macd_crossover",
+    "resistance_breakout", "support_breakdown",
+    "hammer_reversal", "pullback_continuation",
+}
 
 
 @dataclass
@@ -128,6 +135,7 @@ class HistoricalTrainer:
         symbols: list[str] | None = None,
         timeframes: list[str] | None = None,
         months: int = 12,
+        fast_mode: bool = False,
     ) -> TrainingSummary:
         """Run full training loop on historical data.
 
@@ -138,6 +146,9 @@ class HistoricalTrainer:
           4. For signals generated, simulate trades using backtest engine
           5. Feed every trade outcome to SelfTrainingCoordinator
 
+        Args:
+            fast_mode: Use only 6 core strategies for faster training.
+
         Returns TrainingSummary with aggregate results.
         """
         from libs.backtesting.engine import BacktestEngine, BacktestConfig
@@ -147,6 +158,11 @@ class HistoricalTrainer:
 
         symbols = symbols or DEFAULT_TRAINING_SYMBOLS
         timeframes = timeframes or DEFAULT_TIMEFRAMES
+
+        strategies = DEFAULT_STRATEGIES
+        if fast_mode:
+            strategies = [s for s in DEFAULT_STRATEGIES if s.name in FAST_STRATEGIES_NAMES]
+            log.info("training.fast_mode", strategies=len(strategies))
 
         coordinator = get_coordinator()
 
@@ -174,10 +190,14 @@ class HistoricalTrainer:
         summary = TrainingSummary(phase_before=phase_before)
         start_time = datetime.now(timezone.utc)
 
+        total_combos = len(timeframes) * len(symbols)
+        combo_idx = 0
+
         for tf_str in timeframes:
             tf = Timeframe(tf_str)
 
             for symbol in symbols:
+                combo_idx += 1
                 result = await self._train_symbol(
                     symbol=symbol,
                     timeframe=tf,
@@ -185,7 +205,7 @@ class HistoricalTrainer:
                     provider=provider,
                     backtest_engine=backtest_engine,
                     config=config,
-                    strategies=DEFAULT_STRATEGIES,
+                    strategies=strategies,
                     coordinator=coordinator,
                 )
                 summary.results.append(result)
@@ -196,8 +216,10 @@ class HistoricalTrainer:
 
                 log.info("symbol_trained",
                          symbol=symbol, timeframe=tf_str,
+                         progress=f"{combo_idx}/{total_combos}",
                          trades=result.total_trades,
-                         wins=result.wins, losses=result.losses)
+                         wins=result.wins, losses=result.losses,
+                         cumulative_trades=summary.total_trades)
 
         summary.win_rate = (
             summary.total_wins / summary.total_trades
@@ -278,19 +300,37 @@ class HistoricalTrainer:
                     regime = getattr(trade, "regime", "unknown") or "unknown"
                     strategy_name = getattr(strategy, "name", str(strategy.__class__.__name__))
 
+                    # Build market context from trade data for vector memory
+                    rr_val = abs(trade.pnl_r) if trade.pnl_r > 0 else abs(trade.pnl_r) * -1
+                    market_ctx = {
+                        "rsi": getattr(trade, "rsi", 50.0) or 50.0,
+                        "macd_histogram": getattr(trade, "macd_histogram", 0.0) or 0.0,
+                        "atr_pct": getattr(trade, "atr_pct", 1.0) or 1.0,
+                        "volume_ratio": getattr(trade, "volume_ratio", 1.0) or 1.0,
+                        "regime": regime,
+                        "market_regime": regime,
+                        "trend_strength": getattr(trade, "adx", 25.0) or 25.0,
+                        "bb_position": getattr(trade, "bb_pct_b", 0.5) or 0.5,
+                        "ema_alignment": getattr(trade, "ema_ratio", 1.0) or 1.0,
+                    }
+
                     # Feed to coordinator (force_all=True bypasses phase gating
                     # so ALL subsystems learn from every historical trade)
                     coordinator.on_trade_close(
                         strategy=strategy_name,
                         won=won,
                         pnl=trade.pnl_r,
-                        rr=abs(trade.pnl_r) if trade.pnl_r > 0 else abs(trade.pnl_r) * -1,
-                        confidence=0.5,
+                        rr=rr_val,
+                        confidence=trade.confidence,
                         patterns=patterns,
                         regime=regime,
                         disciplined_exit=trade.outcome in ("WIN_TP1", "WIN_TP2", "LOSS_SL"),
                         regime_aligned=won,
                         force_all=True,
+                        # Extra kwargs for vector memory + RL engine
+                        symbol=symbol,
+                        market_context=market_ctx,
+                        trade_id=f"hist_{symbol}_{tf_str}_{trade.trade_idx}",
                     )
 
             except Exception as exc:

@@ -48,7 +48,7 @@ def download(
         help="Comma-separated symbols (default: full watchlist)",
     ),
     timeframes: str = typer.Option(
-        "5m,15m,30m,1h,4h,1d",
+        "15m,1h,4h",
         "--timeframes", "-t",
         help="Comma-separated timeframes to download",
     ),
@@ -101,11 +101,12 @@ def train(
         help="Comma-separated symbols",
     ),
     timeframes: str = typer.Option(
-        "5m,15m,30m,1h,4h,1d",
+        "15m,1h,4h",
         "--timeframes", "-t",
         help="Comma-separated timeframes",
     ),
     months: int = typer.Option(12, "--months", "-m", help="Months of history to train on"),
+    fast: bool = typer.Option(False, "--fast", help="Use 6 core strategies only (3-4x faster)"),
 ):
     """Train agent on downloaded historical data."""
     from libs.training.historical_trainer import (
@@ -115,14 +116,15 @@ def train(
     sym_list = _parse_list(symbols) if symbols else DEFAULT_TRAINING_SYMBOLS
     tf_list = _parse_list(timeframes)
 
-    console.print(f"\n[bold cyan]Training on {len(sym_list)} symbols × {len(tf_list)} timeframes[/]")
+    mode = "[bold yellow]FAST MODE[/] " if fast else ""
+    console.print(f"\n{mode}[bold cyan]Training on {len(sym_list)} symbols × {len(tf_list)} timeframes[/]")
     console.print(f"Symbols: {', '.join(sym_list[:10])}{'...' if len(sym_list) > 10 else ''}")
     console.print(f"Timeframes: {', '.join(tf_list)}\n")
 
     trainer = HistoricalTrainer()
 
     async def _run():
-        return await trainer.train(symbols=sym_list, timeframes=tf_list, months=months)
+        return await trainer.train(symbols=sym_list, timeframes=tf_list, months=months, fast_mode=fast)
 
     summary = asyncio.run(_run())
 
@@ -189,6 +191,7 @@ def main(
     timeframes: str = typer.Option("15m,1h,4h", "--timeframes", "-t"),
     months: int = typer.Option(12, "--months", "-m"),
     force: bool = typer.Option(False, "--force"),
+    fast: bool = typer.Option(False, "--fast", help="Use 6 core strategies only"),
 ):
     """Download + train in one step (default action)."""
     if ctx.invoked_subcommand is not None:
@@ -198,7 +201,7 @@ def main(
     ctx.invoke(download, symbols=symbols, timeframes=timeframes, months=months, force=force)
 
     console.print("[bold]Step 2/2: Train agent[/]")
-    ctx.invoke(train, symbols=symbols, timeframes=timeframes, months=months)
+    ctx.invoke(train, symbols=symbols, timeframes=timeframes, months=months, fast=fast)
 
 
 if __name__ == "__main__":
