@@ -804,6 +804,10 @@ async def paper_dashboard() -> HTMLResponse:
     .bias-badge.bearish { background:rgba(239,68,68,0.12); color:var(--red); border:1px solid rgba(239,68,68,0.2); }
     .bias-badge.neutral { background:rgba(100,116,139,0.12); color:var(--muted); border:1px solid rgba(100,116,139,0.2); }
     .struct-event { font-size:0.65rem; padding:2px 0; }
+
+    /* Mode filter buttons */
+    .mode-filter { transition: all 0.2s var(--spring); }
+    .mode-filter.active { border-color: var(--cyan) !important; color: var(--cyan) !important; background: rgba(34,211,238,0.1) !important; }
   </style>
 </head>
 <body>
@@ -897,7 +901,13 @@ async def paper_dashboard() -> HTMLResponse:
   <div class="panel">
     <div class="panel-header">
       <h2>Open Positions</h2>
-      <button class="rbtn" onclick="loadPositions()">↻</button>
+      <div style="display:flex;gap:4px;align-items:center">
+        <button class="btn-sm mode-filter active" data-mode="ALL" onclick="setModeFilter('ALL',this)">ALL</button>
+        <button class="btn-sm mode-filter" data-mode="EQUITY" onclick="setModeFilter('EQUITY',this)">EQUITY</button>
+        <button class="btn-sm mode-filter" data-mode="SPOT" onclick="setModeFilter('SPOT',this)">SPOT</button>
+        <button class="btn-sm mode-filter" data-mode="FUTURES" onclick="setModeFilter('FUTURES',this)">FUTURES</button>
+        <button class="rbtn" onclick="loadPositions()">↻</button>
+      </div>
     </div>
     <div style="overflow-x:auto">
       <table>
@@ -971,6 +981,22 @@ async def paper_dashboard() -> HTMLResponse:
 // ── State ──────────────────────────────────────────────────────────────────────
 let allTrades = [];
 let botNames = new Set();
+let allPositions = [];
+let currentModeFilter = 'ALL';
+
+function setModeFilter(mode, btn) {
+  currentModeFilter = mode;
+  document.querySelectorAll('.mode-filter').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  filterPositions();
+}
+
+function filterPositions() {
+  const filtered = currentModeFilter === 'ALL'
+    ? allPositions
+    : allPositions.filter(p => (p.market_mode || 'SPOT').toUpperCase() === currentModeFilter);
+  renderPositions(filtered);
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt(n, d = 2) {
@@ -1109,7 +1135,8 @@ async function loadPositions() {
   try {
     const r = await fetch('/api/paper/positions');
     const d = await r.json();
-    renderPositions(d.positions || []);
+    allPositions = d.positions || [];
+    filterPositions();
   } catch (e) {
     console.error('loadPositions error', e);
   }
