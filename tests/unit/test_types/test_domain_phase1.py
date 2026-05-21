@@ -85,7 +85,7 @@ class TestDirection:
         assert Direction.NO_TRADE.value == "NO_TRADE"
 
     def test_exhaustive(self):
-        assert len(Direction) == 4
+        assert len(Direction) == 5  # LONG, SHORT, FLAT, EXIT, NO_TRADE
 
 
 class TestRiskLevel:

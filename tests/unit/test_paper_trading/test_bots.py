@@ -123,7 +123,7 @@ class TestScalperBot:
     def test_takes_m15(self):
         bot = ScalperBot()
         assert bot.should_take_signal(_sig(
-            timeframe=Timeframe.FIFTEEN_MIN, estimated_risk_reward=1.2,
+            timeframe=Timeframe.FIFTEEN_MIN, estimated_risk_reward=1.5,
         )) is True
 
     def test_skips_long_tf(self):

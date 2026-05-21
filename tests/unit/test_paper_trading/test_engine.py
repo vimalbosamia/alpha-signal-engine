@@ -12,6 +12,7 @@ Tests cover:
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import patch
 
 import pytest
 
@@ -28,6 +29,13 @@ from libs.core.models.domain import (
     TrendDirection,
 )
 from libs.paper_trading.engine import INITIAL_CAPITAL, PaperTradingEngine
+
+
+# Prevent tests from loading real trading state from data/paper_state/
+@pytest.fixture(autouse=True)
+def _no_saved_state():
+    with patch("libs.paper_trading.state_persistence.has_saved_state", return_value=False):
+        yield
 
 
 # ── Signal / Confluence factories ──────────────────────────────────────────────

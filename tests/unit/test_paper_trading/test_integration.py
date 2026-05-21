@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pytest
+from unittest.mock import patch
 from uuid import uuid4
 
 from libs.core.models.domain import (
@@ -16,6 +17,12 @@ _CONFLUENCE = ConfluenceBreakdown(
     volume_score=0.5, regime_score=0.8, session_score=0.7,
     risk_score=0.6, data_quality_score=0.9, weighted_total=0.68,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_saved_state():
+    with patch("libs.paper_trading.state_persistence.has_saved_state", return_value=False):
+        yield
 
 
 def _sig(**overrides) -> SignalOutput:

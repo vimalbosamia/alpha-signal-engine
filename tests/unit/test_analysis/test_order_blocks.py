@@ -100,7 +100,7 @@ def test_bullish_ob() -> None:
     # Patch opens so the OB candle is clearly bearish
     df = _make_df(highs, lows, closes)
     # Manually override opens for the OB candle (bar index 15)
-    opens_arr = df["open"].to_numpy(dtype=float)
+    opens_arr = df["open"].to_numpy(dtype=float, copy=True)
     opens_arr[15] = 103.0
     df = df.assign(open=opens_arr)
 
@@ -143,7 +143,7 @@ def test_bearish_ob() -> None:
 
     df = _make_df(highs, lows, closes)
     # Override opens for OB candle to be clearly bullish (open < close)
-    opens_arr = df["open"].to_numpy(dtype=float)
+    opens_arr = df["open"].to_numpy(dtype=float, copy=True)
     opens_arr[15] = 97.0
     df = df.assign(open=opens_arr)
 
@@ -175,7 +175,7 @@ def test_ob_fields() -> None:
     closes = flat_c  + [100.0, 103.5, 106.5, 110.5]
 
     df = _make_df(highs, lows, closes)
-    opens_arr = df["open"].to_numpy(dtype=float)
+    opens_arr = df["open"].to_numpy(dtype=float, copy=True)
     opens_arr[15] = 103.0
     df = df.assign(open=opens_arr)
 

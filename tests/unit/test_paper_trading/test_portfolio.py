@@ -104,8 +104,8 @@ class TestCloseTrade:
         exit_fee = position_size * FEE_RATE
         expected_pnl = gross_pnl - exit_fee
 
-        assert result["pnl"] > 0
-        assert math.isclose(result["pnl"], expected_pnl, rel_tol=1e-9)
+        assert result["realized_pnl"] > 0
+        assert math.isclose(result["realized_pnl"], expected_pnl, rel_tol=1e-9)
         assert p.win_count == 1
         assert p.loss_count == 0
         assert p.total_pnl > 0
@@ -122,7 +122,7 @@ class TestCloseTrade:
         trade_id = open_buy_trade(p, entry_price=entry_price, position_size_usd=position_size)
         result = p.close_trade(trade_id, exit_price=exit_price)
 
-        assert result["pnl"] < 0
+        assert result["realized_pnl"] < 0
         assert p.loss_count == 1
         assert p.win_count == 0
 
@@ -148,7 +148,7 @@ class TestCloseTrade:
         result = p.close_trade(trade_id, exit_price=exit_price)
 
         # SELL P&L = (entry - exit) * units = (100 - 90) * 10 = 100
-        assert result["pnl"] > 0
+        assert result["realized_pnl"] > 0
         assert p.win_count == 1
 
     def test_close_trade_result_dict_keys(self):
@@ -157,7 +157,7 @@ class TestCloseTrade:
         trade_id = open_buy_trade(p)
         result = p.close_trade(trade_id, exit_price=105.0)
 
-        required_keys = {"trade_id", "pnl", "exit_price", "status"}
+        required_keys = {"trade_id", "realized_pnl", "exit_price", "status"}
         assert required_keys.issubset(result.keys())
 
     def test_close_trade_updates_balance(self):

@@ -141,7 +141,7 @@ class TestBotAgentExits:
         closed = bot.check_exits(live_prices)
 
         assert len(closed) == 1
-        assert closed[0]["pnl"] > 0
+        assert closed[0]["realized_pnl"] > 0
 
     def test_bot_check_exits_sl(self):
         """BUY trade with stop_loss=95, live price 94 → closes with loss."""
@@ -161,7 +161,7 @@ class TestBotAgentExits:
         closed = bot.check_exits(live_prices)
 
         assert len(closed) == 1
-        assert closed[0]["pnl"] < 0
+        assert closed[0]["realized_pnl"] < 0
 
 
 class TestBotAgentStats:
