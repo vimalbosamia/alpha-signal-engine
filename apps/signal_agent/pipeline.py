@@ -657,13 +657,13 @@ class SignalPipeline:
                 # MATCHES the direction lock → send to paper bots anyway.
                 # This lets bots trade when bias + strategy agree but confluence
                 # score was just below threshold.
-                paper_action = output.action
-                if paper_action == SignalAction.NO_TRADE and candidate.proposed_action == allowed_action:
-                    paper_action = allowed_action  # Override — bias agrees with strategy
+                # ── Paper trading: bypass macro penalty, use raw candidate ──
+                # Paper bots need learning data — FOMC/news shouldn't block paper trades.
+                # Use candidate's proposed action if it matches direction lock.
+                paper_action = candidate.proposed_action if candidate.proposed_action == allowed_action else SignalAction.NO_TRADE
 
                 if paper_action != SignalAction.NO_TRADE:
-                    # Candle confirmation: only for scalp strategies (candle_flip, candle_momentum)
-                    # Other strategies rely on bias + participation matrix, not per-candle direction
+                    # Candle confirmation: only for scalp strategies
                     _SCALP_STRATEGIES = {"candle_direction_flip", "candle_momentum"}
                     if strategy.name in _SCALP_STRATEGIES:
                         from libs.analysis.candle_confirmation import is_candle_confirmed
@@ -676,9 +676,12 @@ class SignalPipeline:
 
                     from libs.core.models.domain import TradingMode
                     paper_mode = TradingMode.FUTURES if self._trading_mode == "futures" else TradingMode.SPOT
+                    # Use participation confidence multiplier, not macro-killed confidence
+                    paper_conf = max(output.confidence, participation.confidence_multiplier * 0.5)
                     paper_signal = output.model_copy(update={
                         "action": paper_action,
                         "trading_mode": paper_mode,
+                        "confidence": paper_conf,
                     })
                     await self._bus.publish("paper.signal.raw", {
                         "signal": paper_signal,
