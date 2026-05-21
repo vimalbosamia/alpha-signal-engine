@@ -662,14 +662,17 @@ class SignalPipeline:
                     paper_action = allowed_action  # Override — bias agrees with strategy
 
                 if paper_action != SignalAction.NO_TRADE:
-                    # Candle confirmation: reject if last candles contradict direction
-                    from libs.analysis.candle_confirmation import is_candle_confirmed
-                    confirmed, confirm_reason = is_candle_confirmed(df, paper_action.value)
-                    if not confirmed:
-                        log.debug("candle_not_confirmed",
-                                   symbol=symbol, action=paper_action.value,
-                                   reason=confirm_reason, strategy=strategy.name)
-                        continue
+                    # Candle confirmation: only for scalp strategies (candle_flip, candle_momentum)
+                    # Other strategies rely on bias + participation matrix, not per-candle direction
+                    _SCALP_STRATEGIES = {"candle_direction_flip", "candle_momentum"}
+                    if strategy.name in _SCALP_STRATEGIES:
+                        from libs.analysis.candle_confirmation import is_candle_confirmed
+                        confirmed, confirm_reason = is_candle_confirmed(df, paper_action.value)
+                        if not confirmed:
+                            log.debug("candle_not_confirmed",
+                                       symbol=symbol, action=paper_action.value,
+                                       reason=confirm_reason, strategy=strategy.name)
+                            continue
 
                     from libs.core.models.domain import TradingMode
                     paper_mode = TradingMode.FUTURES if self._trading_mode == "futures" else TradingMode.SPOT
