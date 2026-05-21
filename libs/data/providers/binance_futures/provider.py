@@ -30,7 +30,19 @@ from libs.data.providers.base import BaseDataProvider
 
 log = get_logger(__name__)
 
-_BASE_REST = "https://fapi.binance.com"
+def _get_futures_base() -> str:
+    """Return futures REST base URL. Binance.US does NOT have futures — fall back to global."""
+    try:
+        from libs.core.config.settings import get_settings
+        region = get_settings().binance.region
+        if region == "us":
+            # Binance.US has no futures API — US users cannot trade futures
+            return ""
+    except Exception:
+        pass
+    return "https://fapi.binance.com"
+
+_BASE_REST = _get_futures_base()
 _BASE_WS   = "wss://fstream.binance.com"
 
 _TF_MAP: dict[Timeframe, str] = {

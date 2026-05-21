@@ -44,8 +44,9 @@ class BinanceSettings(BaseSettings):
 
     api_key: SecretStr = Field(default=SecretStr(""))
     secret_key: SecretStr = Field(default=SecretStr(""))
-    env: str = "testnet"          # live | testnet
+    env: str = "testnet"          # live | testnet | us
     testnet_url: str = "https://testnet.binance.vision"
+    region: str = "global"        # global | us (USA users must set BINANCE_REGION=us)
     ws_reconnect_attempts: int = 5
     ws_ping_interval: int = 20
 
@@ -53,6 +54,8 @@ class BinanceSettings(BaseSettings):
     def base_url(self) -> str:
         if self.env == "testnet":
             return self.testnet_url
+        if self.region == "us":
+            return "https://api.binance.us"
         return "https://api.binance.com"
 
 

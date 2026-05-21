@@ -347,7 +347,9 @@ async def paper_chart_data(symbol: str, timeframe: str = "15m") -> JSONResponse:
             import pandas as pd
             end_ms = int(now.timestamp() * 1000)
             start_ms = end_ms - (500 * 1000)  # 500 seconds back
-            url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1s&startTime={start_ms}&endTime={end_ms}&limit=500"
+            from libs.core.config.settings import get_settings
+            _binance_base = get_settings().binance.base_url
+            url = f"{_binance_base}/api/v3/klines?symbol={symbol}&interval=1s&startTime={start_ms}&endTime={end_ms}&limit=500"
             async with httpx.AsyncClient(timeout=15) as client:
                 resp = await client.get(url)
                 resp.raise_for_status()
