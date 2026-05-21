@@ -50,6 +50,8 @@ from libs.strategies.level.vwap_reclaim import VWAPReclaimStrategy
 from libs.strategies.level.fibonacci_bounce import FibonacciBounceStrategy
 # Confirmation (1)
 from libs.strategies.confirmation.mtf_alignment import MTFAlignmentStrategy
+from libs.strategies.scalp.candle_flip import CandleFlipStrategy
+from libs.strategies.scalp.candle_momentum import CandleMomentumStrategy
 from libs.audit.audit_log import AuditLog
 from libs.monitoring.metrics import MetricsCollector
 from libs.core.events.bus import EventBus
@@ -95,6 +97,9 @@ DEFAULT_STRATEGIES = [
     FibonacciBounceStrategy(),
     # Confirmation (1)
     MTFAlignmentStrategy(),
+    # Scalp — candle-level (2)
+    CandleFlipStrategy(),
+    CandleMomentumStrategy(),
 ]
 
 

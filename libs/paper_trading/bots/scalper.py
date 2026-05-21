@@ -27,7 +27,16 @@ class ScalperBot(BotAgent):
 
     NAME = "ScalperBot"
 
+    # Candle-level strategies bypass timeframe filter (they work on any TF)
+    _CANDLE_STRATEGIES: frozenset[str] = frozenset({
+        "candle_direction_flip", "candle_momentum",
+    })
+
     def should_take_signal(self, signal: SignalOutput) -> bool:
+        # Candle strategies: accept from any timeframe, lower confidence OK
+        if signal.strategy_name in self._CANDLE_STRATEGIES:
+            return signal.estimated_risk_reward >= 1.0
+        # Other strategies: timeframe + confidence filter
         if signal.timeframe not in _ALLOWED_TIMEFRAMES:
             return False
         if signal.estimated_risk_reward < _MIN_RR:
