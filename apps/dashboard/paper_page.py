@@ -1445,6 +1445,9 @@ async def paper_dashboard() -> HTMLResponse:
 
 </main>
 
+<!-- Lightweight Charts Library (must load before main script) -->
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+
 <script>
 // ── State ──────────────────────────────────────────────────────────────────────
 let allTrades = [];
@@ -1720,13 +1723,15 @@ function renderTrades(trades) {
   renderTradesPaginated(trades);
 }
 
+let _renderedTrades = [];
 function renderTradesRows(trades) {
+  _renderedTrades = trades;
   const tbody = document.getElementById('trades-body');
   if (!trades.length) {
     tbody.innerHTML = '<tr><td colspan="11" class="empty">No closed trades yet</td></tr>';
     return;
   }
-  tbody.innerHTML = trades.map(t => {
+  tbody.innerHTML = trades.map((t, idx) => {
     const side = t.side ?? t.action ?? '—';
     const sideClr = side === 'BUY' ? 'var(--green)' : 'var(--red)';
     const sideLabel = side === 'BUY' ? '▲ BUY' : side === 'SELL' ? '▼ SELL' : side;
@@ -1736,7 +1741,6 @@ function renderTradesRows(trades) {
     const status = t.status ?? 'CLOSED';
     const statusClr = status === 'TAKE_PROFIT' ? 'var(--green)' : status === 'STOP_LOSS' ? 'var(--red)' : status === 'BIAS_EXIT' ? 'var(--yellow)' : 'var(--muted)';
     const statusIcon = status === 'TAKE_PROFIT' ? '✓ TP' : status === 'STOP_LOSS' ? '✕ SL' : status === 'BIAS_EXIT' ? '⚠ BIAS' : status === 'ADVERSE_EXIT' ? '↓ ADV' : status;
-    const tid = t.trade_id ?? '';
     return `<tr>
       <td style="color:var(--muted)">${fmtTime(t.closed_at ?? t.exited_at ?? t.opened_at)}</td>
       <td style="color:var(--blue)">${t.bot_name ?? t.bot ?? '—'}</td>
@@ -1748,12 +1752,14 @@ function renderTradesRows(trades) {
       <td style="color:${pnlColor(pnlPct)}">${pnlPct != null ? fmtPct(pnlPct) : '—'}</td>
       <td style="color:var(--muted)">${hold}</td>
       <td style="color:var(--muted);font-size:0.68rem">${t.strategy ?? t.strategy_name ?? '—'}</td>
-      <td><button class="btn-sm" style="font-size:0.62rem;padding:2px 8px" onclick='showTradeInfo(${JSON.stringify(t).replace(/'/g,"\\'")})'><span style="color:${statusClr};font-weight:bold">${statusIcon}</span> ℹ</button></td>
+      <td><button class="btn-sm" style="font-size:0.62rem;padding:2px 8px" onclick="showTradeInfo(${idx})"><span style="color:${statusClr};font-weight:bold">${statusIcon}</span> ℹ</button></td>
     </tr>`;
   }).join('');
 }
 
-function showTradeInfo(t) {
+function showTradeInfo(idx) {
+  const t = _renderedTrades[idx];
+  if (!t) return;
   const status = t.status ?? 'CLOSED';
   const ctx = t.market_context ?? {};
   const patterns = (t.entry_patterns ?? ctx.entry_patterns ?? []).join(', ') || 'none';
@@ -2396,8 +2402,6 @@ setInterval(loadPreview, 60000);  // Refresh preview every 60s  // Update equity
   </div>
 </div>
 
-<!-- Lightweight Charts Library -->
-<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 </body>
 </html>"""
     return HTMLResponse(content=html)
