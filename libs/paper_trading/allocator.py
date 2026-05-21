@@ -9,7 +9,8 @@ from __future__ import annotations
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-MIN_TRADE_SIZE: float = 10.0
+MIN_TRADE_SIZE: float = 100.0
+MAX_TRADE_SIZE: float = 133.33
 MAX_KELLY_FRACTION: float = 0.25
 MAX_SINGLE_TRADE_PCT: float = 0.15
 REBALANCE_WEIGHTS: list[float] = [0.25, 0.20, 0.18, 0.15, 0.12, 0.10]
@@ -104,7 +105,11 @@ class CapitalAllocator:
         elif volatility_pct > 3.0:
             sized *= 0.75  # Reduce 25% for high volatility
 
-        return sized if sized >= MIN_TRADE_SIZE else 0.0
+        # Clamp to min/max trade size range
+        if sized < MIN_TRADE_SIZE:
+            sized = MIN_TRADE_SIZE
+        sized = min(sized, MAX_TRADE_SIZE)
+        return sized
 
     # ── Rebalance ─────────────────────────────────────────────────────────────
 

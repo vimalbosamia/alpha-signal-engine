@@ -50,73 +50,64 @@ class TestKellyFraction:
 
 class TestPositionSize:
     def test_position_size_cold_start(self, allocator: CapitalAllocator) -> None:
-        """Phase 1 (trade_count=5): fixed 5% of 1667 ≈ 83.35, above MIN_TRADE_SIZE."""
+        """Phase 1: 5% of 1667 = 83.35, but MIN_TRADE_SIZE=$100 clamps up."""
         result = allocator.position_size(
             bot_capital=1667.0,
             trade_count=5,
             win_rate=0.6,
             avg_win_loss_ratio=2.0,
         )
-        assert result == pytest.approx(83.35, rel=1e-2)
+        assert result == 100.0  # clamped to MIN_TRADE_SIZE
 
-    def test_position_size_minimum(self, allocator: CapitalAllocator) -> None:
-        """Phase 1 (trade_count=5): 5% of 150 = 7.5, below $10 minimum → 0."""
+    def test_position_size_minimum_clamp(self, allocator: CapitalAllocator) -> None:
+        """Small capital: raw < $100, clamped UP to MIN_TRADE_SIZE=$100."""
         result = allocator.position_size(
             bot_capital=150.0,
             trade_count=5,
             win_rate=0.6,
             avg_win_loss_ratio=2.0,
         )
-        assert result == 0.0
+        assert result == 100.0  # always at least $100
 
     def test_position_size_learning_phase(self, allocator: CapitalAllocator) -> None:
-        """Phase 2 (trade_count=20): quarter-Kelly sizing."""
-        # kelly = 0.6 - 0.4/2 = 0.4 → capped to 0.25; quarter = 0.25 * 0.25 * 10_000 = 625
+        """Phase 2: quarter-Kelly = 625, clamped to MAX_TRADE_SIZE=$133.33."""
         result = allocator.position_size(
             bot_capital=10_000.0,
             trade_count=20,
             win_rate=0.6,
             avg_win_loss_ratio=2.0,
         )
-        capped_kelly = 0.25  # MAX_KELLY_FRACTION
-        expected = min(capped_kelly * 0.25 * 10_000.0, 10_000.0 * 0.15)
-        assert result == pytest.approx(expected, rel=1e-6)
+        assert result == 133.33  # clamped to MAX_TRADE_SIZE
 
     def test_position_size_full_phase(self, allocator: CapitalAllocator) -> None:
-        """Phase 3 (trade_count=50): half-Kelly sizing."""
-        # kelly = 0.4 → capped to 0.25; half = 0.25 * 0.5 * 10_000 = 1250
+        """Phase 3: half-Kelly = 1250, clamped to MAX_TRADE_SIZE=$133.33."""
         result = allocator.position_size(
             bot_capital=10_000.0,
             trade_count=50,
             win_rate=0.6,
             avg_win_loss_ratio=2.0,
         )
-        capped_kelly = 0.25
-        expected = min(capped_kelly * 0.5 * 10_000.0, 10_000.0 * 0.15)
-        assert result == pytest.approx(expected, rel=1e-6)
+        assert result == 133.33  # clamped to MAX_TRADE_SIZE
 
     def test_position_size_negative_kelly_uses_floor(self, allocator: CapitalAllocator) -> None:
-        """Negative kelly in phase 2/3 → 3% floor for paper learning."""
+        """Negative kelly → 3% floor = 300, clamped to MAX_TRADE_SIZE=$133.33."""
         result = allocator.position_size(
             bot_capital=10_000.0,
             trade_count=20,
             win_rate=0.4,
             avg_win_loss_ratio=1.0,
         )
-        # 3% of 10,000 = 300, capped at 15% max = 1500
-        assert result == 300.0
+        assert result == 133.33
 
-    def test_position_size_phase2_small_capital_below_minimum(self, allocator: CapitalAllocator) -> None:
-        """Phase 2 result below MIN_TRADE_SIZE → 0."""
-        # kelly = 0.01 (tiny edge), quarter = 0.01 * 0.25 * 100 = 0.25 → below $10
+    def test_position_size_phase2_small_capital(self, allocator: CapitalAllocator) -> None:
+        """Phase 2 small capital: raw tiny but clamped to MIN=$100."""
         result = allocator.position_size(
             bot_capital=100.0,
             trade_count=15,
             win_rate=0.51,
-            avg_win_loss_ratio=1.0,  # kelly = 0.51 - 0.49 = 0.02
+            avg_win_loss_ratio=1.0,
         )
-        # quarter-kelly = 0.02 * 0.25 * 100 = 0.5 < MIN_TRADE_SIZE
-        assert result == 0.0
+        assert result == 100.0  # clamped to MIN_TRADE_SIZE
 
 
 # ── rebalance ─────────────────────────────────────────────────────────────────
