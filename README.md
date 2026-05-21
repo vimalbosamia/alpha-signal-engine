@@ -21,7 +21,18 @@ Institutional-grade AI trading signal intelligence engine with 6 competing hedge
 
 ---
 
-## Quick Start
+## Quick Start (One Command)
+
+```bash
+git clone https://github.com/vimalbosamia/alpha-signal-engine.git
+cd alpha-signal-engine
+chmod +x setup.sh
+./setup.sh
+```
+
+This single script: checks Python, installs uv, installs dependencies, creates `.env`, runs tests, starts the server. Open `http://localhost:8000/paper` after it starts.
+
+### Manual Setup
 
 ```bash
 # 1. Install dependencies
