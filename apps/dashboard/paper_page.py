@@ -1038,6 +1038,33 @@ async def paper_dashboard() -> HTMLResponse:
     .header-right { display: flex; align-items: center; gap: 10px; font-size: 0.72rem; color: var(--muted); }
     .back-link { color: var(--blue); text-decoration: none; font-size: 0.78rem; transition: color 0.2s; }
     .back-link:hover { color: var(--cyan); text-decoration: underline; }
+
+    /* Section nav menu */
+    .section-nav {
+      display: flex; gap: 4px; align-items: center;
+      background: rgba(11,15,26,0.7); backdrop-filter: blur(12px);
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 4px; margin: 8px 16px 0;
+      position: sticky; top: 58px; z-index: 99;
+    }
+    .section-nav a {
+      color: var(--muted); text-decoration: none; font-size: 0.72rem; font-weight: 500;
+      padding: 5px 12px; border-radius: 7px; transition: all 0.25s var(--spring);
+      white-space: nowrap;
+    }
+    .section-nav a:hover { color: var(--bright); background: rgba(255,255,255,0.06); }
+    .section-nav a.active { color: var(--cyan); background: rgba(34,211,238,0.1); }
+
+    /* Pagination */
+    .pag { display: flex; justify-content: center; align-items: center; gap: 8px; padding: 12px 18px; }
+    .pag button {
+      background: var(--surface-solid); border: 1px solid var(--border); color: var(--text);
+      padding: 5px 12px; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 0.72rem;
+      transition: all 0.2s;
+    }
+    .pag button:hover:not(:disabled) { border-color: var(--cyan); color: var(--cyan); }
+    .pag button:disabled { opacity: 0.35; cursor: not-allowed; }
+    .pag span { color: var(--muted); font-size: 0.72rem; }
     .virtual-badge {
       padding: 3px 12px; border-radius: 20px; font-weight: 700;
       font-size: 0.62rem; color: var(--yellow);
@@ -1253,6 +1280,15 @@ async def paper_dashboard() -> HTMLResponse:
   </div>
 </header>
 
+<!-- Section Nav -->
+<nav class="section-nav" id="section-nav">
+  <a href="#sec-leaderboard" class="active">Leaderboard</a>
+  <a href="#sec-preview">Signal Preview</a>
+  <a href="#sec-equity">Equity Curve</a>
+  <a href="#sec-positions">Open Positions</a>
+  <a href="#sec-trades">Trade History</a>
+</nav>
+
 <!-- Hero: Giant money counter -->
 <div class="hero">
   <h1 id="money-h1">$10,000.00</h1>
@@ -1269,7 +1305,7 @@ async def paper_dashboard() -> HTMLResponse:
 <main>
 
   <!-- Bot Leaderboard -->
-  <div class="panel">
+  <div class="panel" id="sec-leaderboard">
     <div class="panel-header">
       <h2>Bot Leaderboard</h2>
       <button class="rbtn" onclick="loadSummary()">↻</button>
@@ -1299,7 +1335,7 @@ async def paper_dashboard() -> HTMLResponse:
   </div>
 
   <!-- Signal Preview -->
-  <div class="panel">
+  <div class="panel" id="sec-preview">
     <div class="panel-header">
       <h2>Signal Preview</h2>
       <button class="btn-sm" onclick="loadPreview()">Scan Now</button>
@@ -1319,7 +1355,7 @@ async def paper_dashboard() -> HTMLResponse:
   </div>
 
   <!-- Equity Curve -->
-  <div class="panel">
+  <div class="panel" id="sec-equity">
     <div class="panel-header">
       <h2>Equity Curve</h2>
       <button class="btn-sm" onclick="loadEquity()">Refresh</button>
@@ -1328,7 +1364,7 @@ async def paper_dashboard() -> HTMLResponse:
   </div>
 
   <!-- Open Positions -->
-  <div class="panel">
+  <div class="panel" id="sec-positions">
     <div class="panel-header">
       <h2>Open Positions</h2>
       <div style="display:flex;gap:4px;align-items:center">
@@ -1371,7 +1407,7 @@ async def paper_dashboard() -> HTMLResponse:
   </div>
 
   <!-- Trade History -->
-  <div class="panel">
+  <div class="panel" id="sec-trades">
     <div class="panel-header">
       <h2>Trade History</h2>
       <div style="display:flex;gap:8px;align-items:center">
@@ -1403,6 +1439,7 @@ async def paper_dashboard() -> HTMLResponse:
         </tbody>
       </table>
     </div>
+    <div class="pag" id="trades-pag"></div>
   </div>
 
 </main>
@@ -1679,6 +1716,10 @@ function filterTrades() {
 }
 
 function renderTrades(trades) {
+  renderTradesPaginated(trades);
+}
+
+function renderTradesRows(trades) {
   const tbody = document.getElementById('trades-body');
   if (!trades.length) {
     tbody.innerHTML = '<tr><td colspan="10" class="empty">No closed trades yet</td></tr>';
@@ -2208,6 +2249,45 @@ async function loadEquity() {
       equityChart.timeScale().fitContent();
     }
   } catch(e) { console.error('equity error', e); }
+}
+
+// ── Section Nav scroll spy ───────────────────────────────────────────────────
+const navLinks = document.querySelectorAll('.section-nav a');
+const sectionIds = [...navLinks].map(a => a.getAttribute('href').slice(1));
+function updateNav() {
+  let active = sectionIds[0];
+  for (const id of sectionIds) {
+    const el = document.getElementById(id);
+    if (el && el.getBoundingClientRect().top <= 120) active = id;
+  }
+  navLinks.forEach(a => {
+    a.classList.toggle('active', a.getAttribute('href') === '#' + active);
+  });
+}
+window.addEventListener('scroll', updateNav, { passive: true });
+
+// ── Trade History Pagination ─────────────────────────────────────────────────
+const TRADES_PER_PAGE = 25;
+let tradesPage = 0;
+let filteredTradesCache = [];
+
+function renderTradesPaginated(trades) {
+  filteredTradesCache = trades;
+  tradesPage = 0;
+  showTradesPage();
+}
+
+function showTradesPage() {
+  const start = tradesPage * TRADES_PER_PAGE;
+  const page = filteredTradesCache.slice(start, start + TRADES_PER_PAGE);
+  renderTradesRows(page);
+  const totalPages = Math.ceil(filteredTradesCache.length / TRADES_PER_PAGE) || 1;
+  const pag = document.getElementById('trades-pag');
+  pag.innerHTML = filteredTradesCache.length > TRADES_PER_PAGE
+    ? `<button onclick="tradesPage--;showTradesPage()" ${tradesPage===0?'disabled':''}>← Prev</button>` +
+      `<span>${tradesPage+1} / ${totalPages}</span>` +
+      `<button onclick="tradesPage++;showTradesPage()" ${tradesPage>=totalPages-1?'disabled':''}>Next →</button>`
+    : '';
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
