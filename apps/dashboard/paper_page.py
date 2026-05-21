@@ -1432,10 +1432,11 @@ async def paper_dashboard() -> HTMLResponse:
             <th>P&amp;L%</th>
             <th>Hold</th>
             <th>Strategy</th>
+            <th>Info</th>
           </tr>
         </thead>
         <tbody id="trades-body">
-          <tr><td colspan="10" class="empty">No closed trades yet</td></tr>
+          <tr><td colspan="11" class="empty">No closed trades yet</td></tr>
         </tbody>
       </table>
     </div>
@@ -1722,7 +1723,7 @@ function renderTrades(trades) {
 function renderTradesRows(trades) {
   const tbody = document.getElementById('trades-body');
   if (!trades.length) {
-    tbody.innerHTML = '<tr><td colspan="10" class="empty">No closed trades yet</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" class="empty">No closed trades yet</td></tr>';
     return;
   }
   tbody.innerHTML = trades.map(t => {
@@ -1732,6 +1733,10 @@ function renderTradesRows(trades) {
     const pnl = t.pnl ?? t.realized_pnl;
     const pnlPct = t.pnl_pct ?? t.pnl_percent;
     const hold = holdDuration(t.opened_at ?? t.entered_at, t.closed_at ?? t.exited_at);
+    const status = t.status ?? 'CLOSED';
+    const statusClr = status === 'TAKE_PROFIT' ? 'var(--green)' : status === 'STOP_LOSS' ? 'var(--red)' : status === 'BIAS_EXIT' ? 'var(--yellow)' : 'var(--muted)';
+    const statusIcon = status === 'TAKE_PROFIT' ? '✓ TP' : status === 'STOP_LOSS' ? '✕ SL' : status === 'BIAS_EXIT' ? '⚠ BIAS' : status === 'ADVERSE_EXIT' ? '↓ ADV' : status;
+    const tid = t.trade_id ?? '';
     return `<tr>
       <td style="color:var(--muted)">${fmtTime(t.closed_at ?? t.exited_at ?? t.opened_at)}</td>
       <td style="color:var(--blue)">${t.bot_name ?? t.bot ?? '—'}</td>
@@ -1743,8 +1748,65 @@ function renderTradesRows(trades) {
       <td style="color:${pnlColor(pnlPct)}">${pnlPct != null ? fmtPct(pnlPct) : '—'}</td>
       <td style="color:var(--muted)">${hold}</td>
       <td style="color:var(--muted);font-size:0.68rem">${t.strategy ?? t.strategy_name ?? '—'}</td>
+      <td><button class="btn-sm" style="font-size:0.62rem;padding:2px 8px" onclick='showTradeInfo(${JSON.stringify(t).replace(/'/g,"\\'")})'><span style="color:${statusClr};font-weight:bold">${statusIcon}</span> ℹ</button></td>
     </tr>`;
   }).join('');
+}
+
+function showTradeInfo(t) {
+  const status = t.status ?? 'CLOSED';
+  const ctx = t.market_context ?? {};
+  const patterns = (t.entry_patterns ?? ctx.entry_patterns ?? []).join(', ') || 'none';
+  const regime = t.regime ?? ctx.market_regime ?? '—';
+  const grade = ctx.setup_grade ?? '—';
+  const conf = t.entry_confidence ?? ctx.entry_confidence ?? 0;
+  const mfe = t.mfe != null ? (t.mfe * 100).toFixed(2) + '%' : '—';
+  const mae = t.mae != null ? (t.mae * 100).toFixed(2) + '%' : '—';
+  const mode = t.trading_mode ?? 'spot';
+  const lev = t.leverage ?? 1;
+  const size = t.position_size_usd ? '$' + t.position_size_usd.toFixed(2) : '—';
+
+  const reasonMap = {
+    'TAKE_PROFIT': 'Price reached Take Profit target (TP1)',
+    'STOP_LOSS': 'Price hit Stop Loss — risk limit triggered',
+    'BIAS_EXIT': 'Market bias flipped against trade direction',
+    'ADVERSE_EXIT': 'Sustained adverse P&L exceeded threshold',
+    'TRAILING_STOP': 'Trailing stop triggered after partial profit',
+    'MANUAL': 'Manually closed by operator',
+    'TIMEOUT': 'Maximum hold duration exceeded',
+    'CLOSED': 'Position closed (reason not recorded)',
+  };
+  const reason = reasonMap[status] ?? status;
+
+  const html = `
+    <div style="text-align:left;font-size:0.75rem;line-height:1.6">
+      <div style="font-size:0.85rem;font-weight:bold;color:var(--bright);margin-bottom:8px">${t.symbol} — ${t.bot_name ?? t.bot}</div>
+      <div><b style="color:var(--cyan)">Exit Reason:</b> <span style="color:${status==='TAKE_PROFIT'?'var(--green)':status==='STOP_LOSS'?'var(--red)':'var(--yellow)'};font-weight:bold">${reason}</span></div>
+      <hr style="border-color:var(--border);margin:6px 0">
+      <div><b>Strategy:</b> ${t.strategy ?? t.strategy_name ?? '—'}</div>
+      <div><b>Setup Grade:</b> ${grade}</div>
+      <div><b>Entry Confidence:</b> ${(conf*100).toFixed(0)}%</div>
+      <div><b>Regime:</b> ${regime}</div>
+      <div><b>Patterns:</b> ${patterns}</div>
+      <hr style="border-color:var(--border);margin:6px 0">
+      <div><b>Mode:</b> ${mode.toUpperCase()} ${lev}x</div>
+      <div><b>Size:</b> ${size}</div>
+      <div><b>MFE (max favorable):</b> ${mfe}</div>
+      <div><b>MAE (max adverse):</b> ${mae}</div>
+      <div><b>Hold:</b> ${holdDuration(t.opened_at, t.closed_at ?? t.exited_at)}</div>
+    </div>
+  `;
+  // Simple modal
+  let overlay = document.getElementById('trade-info-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'trade-info-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+    overlay.onclick = e => { if(e.target===overlay) overlay.style.display='none'; };
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = '<div style="background:var(--surface-solid);border:1px solid var(--border);border-radius:12px;padding:20px 24px;max-width:420px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.5)">' + html + '<div style="text-align:center;margin-top:12px"><button class="btn-sm" onclick="document.getElementById(\'trade-info-overlay\').style.display=\'none\'">Close</button></div></div>';
+  overlay.style.display = 'flex';
 }
 
 // ── Bot controls ──────────────────────────────────────────────────────────────
