@@ -165,10 +165,19 @@ class AgentOrchestrator:
                 agent_outputs=[],
             )
 
-        # Get weights from agent instances
+        # Get weights: learned weights override static defaults
         weight_map: dict[str, float] = {
             agent.name: agent.weight for agent in self._agents
         }
+        try:
+            from libs.learning.agent_weight_tuner import get_weight_tuner
+            tuner = get_weight_tuner()
+            learned = tuner.get_all_weights()
+            for name, w in learned.items():
+                if name in weight_map:
+                    weight_map[name] = w
+        except Exception:
+            pass
 
         # Weighted score and confidence
         total_weight = 0.0

@@ -70,13 +70,70 @@ class PaperTradingEngine:
 
     # ── Signal dispatch ────────────────────────────────────────────────────────
 
-    def dispatch_signal(self, signal: SignalOutput) -> list[dict]:
-        """Fan signal to all bots. Per-bot dedup only (each bot can hold 1 per symbol).
+    # ── Exposure limits ──────────────────────────────────────────────────────
+    MAX_BOTS_PER_SYMBOL: int = 3       # max bots holding same symbol+direction
+    MAX_DIRECTIONAL_PCT: float = 0.65  # max 65% exposure in one direction
 
-        Multiple bots CAN hold same symbol — this generates more data for learning.
+    def _directional_exposure(self) -> dict[str, int]:
+        """Count open trades by direction across all bots."""
+        counts: dict[str, int] = {"BUY": 0, "SELL": 0}
+        for bot in self._bots:
+            for trade in bot.portfolio.open_trades:
+                action = getattr(trade, "action", "BUY")
+                key = action if isinstance(action, str) else str(action)
+                if "BUY" in key.upper():
+                    counts["BUY"] += 1
+                else:
+                    counts["SELL"] += 1
+        return counts
+
+    def _bots_holding_symbol_direction(self, symbol: str, action: str) -> int:
+        """Count how many bots already hold this symbol in this direction."""
+        count = 0
+        for bot in self._bots:
+            for trade in bot.portfolio.open_trades:
+                t_action = getattr(trade, "action", "")
+                t_action_str = t_action if isinstance(t_action, str) else str(t_action)
+                if trade.symbol == symbol and action.upper() in t_action_str.upper():
+                    count += 1
+        return count
+
+    def dispatch_signal(self, signal: SignalOutput) -> list[dict]:
+        """Fan signal to bots with exposure guards.
+
+        Guards:
+        - Max 3 bots per symbol+direction (prevents herding)
+        - Max 65% of total positions in one direction (prevents directional bias)
         """
+        action_str = signal.action.value if hasattr(signal.action, "value") else str(signal.action)
+
+        # Guard 1: per-symbol bot limit
+        held = self._bots_holding_symbol_direction(signal.symbol, action_str)
+        if held >= self.MAX_BOTS_PER_SYMBOL:
+            log.info("exposure_guard_symbol_limit",
+                     symbol=signal.symbol, action=action_str,
+                     held=held, limit=self.MAX_BOTS_PER_SYMBOL)
+            return []
+
+        # Guard 2: directional exposure limit
+        dir_counts = self._directional_exposure()
+        total_open = dir_counts["BUY"] + dir_counts["SELL"]
+        if total_open > 5:  # only enforce after portfolio has some positions
+            direction_key = "BUY" if "BUY" in action_str.upper() else "SELL"
+            dir_pct = dir_counts[direction_key] / total_open
+            if dir_pct >= self.MAX_DIRECTIONAL_PCT:
+                log.info("exposure_guard_directional_limit",
+                         symbol=signal.symbol, action=action_str,
+                         direction_pct=round(dir_pct, 2),
+                         counts=dir_counts, limit=self.MAX_DIRECTIONAL_PCT)
+                return []
+
+        # Guard 3: limit bots that can take this signal
+        remaining_slots = self.MAX_BOTS_PER_SYMBOL - held
         results: list[dict] = []
         for bot in self._bots:
+            if len(results) >= remaining_slots:
+                break
             result = bot.on_signal(signal)
             if result is not None:
                 results.append(result)

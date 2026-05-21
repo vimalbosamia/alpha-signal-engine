@@ -189,6 +189,18 @@ def _save_learning_systems() -> None:
     except Exception:
         pass
 
+    try:
+        from libs.learning.agent_weight_tuner import get_weight_tuner
+        get_weight_tuner().save(os.path.join(learning_dir, "agent_weights.json"))
+    except Exception:
+        pass
+
+    try:
+        from libs.learning.strategy_evolution import get_evolution_engine
+        get_evolution_engine().save(os.path.join(learning_dir, "strategy_evolution.json"))
+    except Exception:
+        pass
+
 
 def _restore_learning_systems() -> None:
     """Restore all self-training subsystem state from disk."""
@@ -229,6 +241,18 @@ def _restore_learning_systems() -> None:
     try:
         from libs.learning.rl_engine import get_rl_engine
         get_rl_engine().load(os.path.join(learning_dir, "rl_engine.json"))
+    except Exception:
+        pass
+
+    try:
+        from libs.learning.agent_weight_tuner import get_weight_tuner
+        get_weight_tuner().load(os.path.join(learning_dir, "agent_weights.json"))
+    except Exception:
+        pass
+
+    try:
+        from libs.learning.strategy_evolution import get_evolution_engine
+        get_evolution_engine().load(os.path.join(learning_dir, "strategy_evolution.json"))
     except Exception:
         pass
 

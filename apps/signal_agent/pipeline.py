@@ -185,6 +185,10 @@ class SignalPipeline:
         self._ob_detector = OrderBlockDetector()
         self._fvg_detector = FVGDetector()
 
+        # Live sentiment cache (refreshed once per run_once cycle)
+        self._live_sentiment: dict[str, Any] | None = None
+        self._sentiment_ts: float = 0.0
+
     async def run_once(
         self,
         symbol: str,
@@ -421,8 +425,14 @@ class SignalPipeline:
                           mode=self._trading_mode)
                 return outputs  # Skip all strategies for this symbol
 
-            # ── 4d. Macro filters ────────────────────────────────────────
+            # ── 4d. Macro filters (with live sentiment) ─────────────────
             try:
+                # Fetch cached live sentiment (refreshes every 5 min)
+                live_sent = await self._get_live_sentiment()
+                fng_value = live_sent.get("fear_greed_index", 50)
+                funding = live_sent.get("funding_rate", 0.0)
+                ls_ratio = live_sent.get("long_short_ratio", 1.0)
+
                 # News impact — block during FOMC/CPI/NFP
                 news = NewsImpactEngine().assess(symbol, asset_class.value)
                 if news.should_block:
@@ -431,10 +441,18 @@ class SignalPipeline:
                     log.info("news_penalty", symbol=symbol, reason=news.explanation)
                 macro_confidence_adj += news.total_confidence_impact
 
-                # Sentiment — Fear/Greed + volatility
+                # Sentiment — live Fear/Greed + volatility
                 atr_pct = (regime.atr / float(df["close"].iloc[-1]) * 100) if regime.atr and float(df["close"].iloc[-1]) > 0 else 1.0
-                sentiment = SentimentFilter().assess(fear_greed_value=50, volatility_pct=atr_pct)
+                sentiment = SentimentFilter().assess(fear_greed_value=fng_value, volatility_pct=atr_pct)
                 macro_confidence_adj += sentiment.confidence_adjustment
+
+                # Derivatives pressure — live funding rate + long/short ratio
+                derivatives = DerivativesPressureEngine().assess(
+                    funding_rate=funding,
+                    oi_change_pct=0.0,  # OI not yet fetched
+                    long_short_ratio=ls_ratio,
+                )
+                macro_confidence_adj += derivatives.confidence_adjustment
 
                 # Global risk — VIX + drawdowns
                 global_risk = GlobalRiskEngine().assess()
@@ -444,6 +462,7 @@ class SignalPipeline:
                 macro_confidence_adj += global_risk.confidence_adjustment
 
                 log.debug("macro_filters_applied", symbol=symbol,
+                          fng=fng_value, funding=funding, ls_ratio=ls_ratio,
                           confidence_adj=round(macro_confidence_adj, 3))
             except Exception as exc:
                 log.debug("macro_filter_error", error=str(exc))
@@ -800,3 +819,21 @@ class SignalPipeline:
             Timeframe.ONE_WEEK: 604800,
         }
         return _MAP.get(tf, 300)
+
+    async def _get_live_sentiment(self) -> dict[str, Any]:
+        """Return cached live sentiment; refresh every 5 minutes."""
+        import time
+        now = time.monotonic()
+        if self._live_sentiment is None or (now - self._sentiment_ts) > 300:
+            try:
+                from libs.agents.context_builder import fetch_live_sentiment
+                self._live_sentiment = await fetch_live_sentiment()
+                self._sentiment_ts = now
+            except Exception as exc:
+                log.debug("live_sentiment_fetch_error", error=str(exc))
+                self._live_sentiment = {
+                    "fear_greed_index": 50,
+                    "funding_rate": 0.0,
+                    "long_short_ratio": 1.0,
+                }
+        return self._live_sentiment

@@ -260,6 +260,15 @@ class SelfTrainingCoordinator:
                 error=str(exc),
             )
 
+        # Strategy evolution — record outcome + evolve at Phase 7+
+        if force_all or self._current_phase >= TrainingPhase.AUTONOMOUS_EVOLUTION:
+            try:
+                from libs.learning.strategy_evolution import get_evolution_engine
+                evo = get_evolution_engine()
+                evo.record_outcome(strategy=strategy, won=won, pnl=pnl, rr=rr)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("coordinator.strategy_evolution_error", error=str(exc))
+
         # Auto-tune at interval
         if self._total_trades % self._tune_interval == 0:
             self._run_tune_cycle()
@@ -282,6 +291,15 @@ class SelfTrainingCoordinator:
             get_pattern_store().apply_decay()
         except Exception as exc:  # noqa: BLE001
             log.warning("coordinator.apply_decay_error", error=str(exc))
+
+        # Evolve strategies at Phase 7+
+        if self._current_phase >= TrainingPhase.AUTONOMOUS_EVOLUTION:
+            try:
+                from libs.learning.strategy_evolution import get_evolution_engine
+                results = get_evolution_engine().evolve_all()
+                log.debug("coordinator.evolution_cycle", results=len(results))
+            except Exception as exc:  # noqa: BLE001
+                log.warning("coordinator.evolution_error", error=str(exc))
 
         self._tune_cycles += 1
         log.debug(
@@ -431,6 +449,8 @@ class SelfTrainingCoordinator:
             active.append("strategy_tuner")
         if phase >= TrainingPhase.REINFORCEMENT_LEARNING:
             active.extend(["reward_engine", "rl_engine"])
+        if phase >= TrainingPhase.AUTONOMOUS_EVOLUTION:
+            active.append("strategy_evolution")
 
         return active
 
