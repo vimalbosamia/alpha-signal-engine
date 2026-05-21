@@ -26,8 +26,8 @@ _ALLOWED_REGIMES: frozenset[MarketRegime] = frozenset({
     MarketRegime.BREAKOUT,
 })
 
-_MIN_CONFIDENCE: float = 0.35
-_MIN_RR: float = 2.0
+_MIN_CONFIDENCE: float = 0.20
+_MIN_RR: float = 1.0
 
 
 class SwingBot(BotAgent):

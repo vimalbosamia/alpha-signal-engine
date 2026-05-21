@@ -594,19 +594,21 @@ class SignalPipeline:
                     pass
 
                 # ── 10. Cost model — reject if costs eat the profit ────────
-                try:
-                    entry = (candidate.entry_zone_low + candidate.entry_zone_high) / 2
-                    expected_move = abs(candidate.take_profit_1 - entry) / entry * 100 if entry > 0 else 0
-                    costs = CostModelEngine().assess(
-                        symbol=symbol, asset_class=asset_class.value,
-                        entry_price=entry, expected_move_pct=expected_move,
-                    )
-                    if costs.should_reject:
-                        log.debug("cost_model_rejected", symbol=symbol, strategy=strategy.name,
-                                  expected_move=round(expected_move, 3), min_move=costs.min_profitable_move_pct)
-                        continue
-                except Exception:
-                    pass
+                # Skip in paper mode — learning needs volume of trades
+                if not is_paper_mode:
+                    try:
+                        entry = (candidate.entry_zone_low + candidate.entry_zone_high) / 2
+                        expected_move = abs(candidate.take_profit_1 - entry) / entry * 100 if entry > 0 else 0
+                        costs = CostModelEngine().assess(
+                            symbol=symbol, asset_class=asset_class.value,
+                            entry_price=entry, expected_move_pct=expected_move,
+                        )
+                        if costs.should_reject:
+                            log.debug("cost_model_rejected", symbol=symbol, strategy=strategy.name,
+                                      expected_move=round(expected_move, 3), min_move=costs.min_profitable_move_pct)
+                            continue
+                    except Exception:
+                        pass
 
                 # Apply macro confidence adjustment
                 if macro_confidence_adj != 0 and hasattr(breakdown, 'model_copy'):

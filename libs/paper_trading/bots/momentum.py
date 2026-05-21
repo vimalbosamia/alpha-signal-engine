@@ -24,8 +24,8 @@ _ALLOWED_REGIMES: frozenset[MarketRegime] = frozenset({
     MarketRegime.BREAKOUT,
 })
 
-_MIN_CONFIDENCE: float = 0.30
-_MIN_RR: float = 1.5
+_MIN_CONFIDENCE: float = 0.20
+_MIN_RR: float = 1.0
 
 
 class MomentumBot(BotAgent):
