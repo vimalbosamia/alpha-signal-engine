@@ -37,20 +37,27 @@ def score_triggers(
     if not triggers:
         return 0.0, "no trigger strategies fired", None, []
 
+    def _candidate_confidence(c: SignalCandidate) -> float:
+        """Extract confidence from pattern results or default to 0.5."""
+        detected = [p for p in c.pattern_results if p.detected]
+        if detected:
+            return sum(p.confidence for p in detected) / len(detected)
+        return 0.5
+
     # Pick best trigger per category (highest confidence)
     best_per_category: dict[StrategyCategory, SignalCandidate] = {}
     for t in triggers:
         cat = get_category(t.strategy_name)
         existing = best_per_category.get(cat)
-        if existing is None or t.confidence > existing.confidence:
+        if existing is None or _candidate_confidence(t) > _candidate_confidence(existing):
             best_per_category[cat] = t
 
     # Primary trigger = highest confidence across all categories
-    primary = max(best_per_category.values(), key=lambda c: c.confidence)
+    primary = max(best_per_category.values(), key=_candidate_confidence)
     categories_used = [cat.value for cat in best_per_category]
 
     # Score: base 15 + confidence-scaled bonus up to 15
-    confidence = primary.confidence
+    confidence = _candidate_confidence(primary)
     score = 15.0 + (confidence * 15.0)  # 15-30 range
     score = max(15.0, min(30.0, score))
 

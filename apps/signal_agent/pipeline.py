@@ -688,13 +688,16 @@ class SignalPipeline:
 
                 # ── Confluence V2: multi-layer scoring ────────────────────
                 try:
-                    ind_dict = dict(indicators) if indicators else {}
+                    from dataclasses import asdict
+                    ind_dict = asdict(indicators) if indicators else {}
                     if len(df) > 0:
                         last = df.iloc[-1]
                         ind_dict.setdefault("close", float(last.get("close", 0)))
+                    if volume:
+                        ind_dict["volume_relative"] = volume.relative_volume
                     if len(df) > 1:
                         prev_ind = self._indicators.compute(df.iloc[:-1])
-                        ind_dict["prev_rsi"] = prev_ind.get("rsi")
+                        ind_dict["prev_rsi"] = getattr(prev_ind, "rsi", None)
                     v2_bias = {
                         "bullish": symbol_bias.bullish_score if symbol_bias else 0.0,
                         "bearish": symbol_bias.bearish_score if symbol_bias else 0.0,

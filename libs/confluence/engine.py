@@ -191,7 +191,7 @@ class ConfluenceV2Engine:
             probability_short=prob_short,
             bias_score=bias_score,
             primary_strategy=primary_trigger.strategy_name,
-            trigger_confidence=primary_trigger.confidence,
+            trigger_confidence=trigger_score / 30.0,  # normalized from trigger layer
             trigger_score=trigger_score,
             supporting_strategies=tuple(supporting),
             confirmation_signals=tuple(confirmations),

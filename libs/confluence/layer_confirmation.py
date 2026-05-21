@@ -61,6 +61,10 @@ def score_confirmations(
     categories_seen: set[StrategyCategory] = set()
 
     # ── Strategy-based confirmations ──
+    def _conf(c: SignalCandidate) -> float:
+        detected = [p for p in c.pattern_results if p.detected]
+        return sum(p.confidence for p in detected) / len(detected) if detected else 0.5
+
     # Pick best per category
     best_per_cat: dict[StrategyCategory, SignalCandidate] = {}
     for c in candidates:
@@ -70,7 +74,7 @@ def score_confirmations(
             continue
         cat = get_category(c.strategy_name)
         existing = best_per_cat.get(cat)
-        if existing is None or c.confidence > existing.confidence:
+        if existing is None or _conf(c) > _conf(existing):
             best_per_cat[cat] = c
 
     for cat, cand in best_per_cat.items():
