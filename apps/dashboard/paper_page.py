@@ -550,6 +550,408 @@ async def paper_chart_data(symbol: str, timeframe: str = "15m") -> JSONResponse:
         return JSONResponse(content={"error": str(exc)}, status_code=500)
 
 
+# ── Shared CSS for sub-pages ──────────────────────────────────────────────────
+
+_PAGE_CSS = """
+@import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@300;400;500;600;700&family=Orbitron:wght@400;500;600;700&display=swap');
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0B0F1A; --surface: rgba(17,24,42,0.75); --surface-solid: #111828;
+  --border: rgba(255,255,255,0.08); --border-hover: rgba(255,255,255,0.15);
+  --muted: #64748B; --text: #E2E8F0; --bright: #F8FAFC;
+  --blue: #38BDF8; --green: #10B981; --red: #EF4444; --yellow: #F59E0B;
+  --cyan: #22D3EE; --accent: #F59E0B; --surface2: rgba(24,36,64,0.6);
+}
+body { font-family: 'Exo 2', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; font-size: 13px;
+  background-image: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(56,189,248,0.08), transparent),
+                    radial-gradient(ellipse 60% 40% at 80% 100%, rgba(16,185,129,0.05), transparent);
+  background-attachment: fixed; }
+a { color: var(--blue); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.top-bar { background: var(--surface-solid); border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; }
+.top-bar h1 { font-family: 'Orbitron', monospace; font-size: 1rem; color: var(--cyan); font-weight: 600; }
+.nav-links { display: flex; gap: 16px; font-size: 0.78rem; }
+.nav-links a { color: var(--muted); padding: 4px 10px; border-radius: 6px; transition: all 0.2s; }
+.nav-links a:hover, .nav-links a.active { color: var(--bright); background: rgba(255,255,255,0.06); text-decoration: none; }
+main { max-width: 1400px; margin: 0 auto; padding: 20px 24px; }
+.panel { background: var(--surface); backdrop-filter: blur(16px); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-bottom: 16px; }
+.panel-header { padding: 12px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.panel-header h2 { font-size: 0.85rem; color: var(--bright); font-weight: 600; }
+table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
+th { padding: 8px 12px; text-align: left; color: var(--muted); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+td { padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,0.04); white-space: nowrap; vertical-align: middle; }
+tr:hover td { background: rgba(255,255,255,0.03); }
+.empty { padding: 30px; text-align: center; color: var(--muted); font-size: 0.82rem; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.68rem; font-weight: 600; }
+.badge-win { background: rgba(16,185,129,0.15); color: var(--green); }
+.badge-loss { background: rgba(239,68,68,0.15); color: var(--red); }
+.badge-open { background: rgba(56,189,248,0.15); color: var(--blue); }
+.pag { display: flex; justify-content: center; align-items: center; gap: 8px; padding: 16px; }
+.pag button { background: var(--surface-solid); border: 1px solid var(--border); color: var(--text); padding: 6px 14px; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 0.75rem; transition: all 0.2s; }
+.pag button:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
+.pag button:disabled { opacity: 0.4; cursor: not-allowed; }
+.pag span { color: var(--muted); font-size: 0.75rem; }
+.stat-row { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.stat-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 18px; min-width: 140px; }
+.stat-box .label { font-size: 0.65rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+.stat-box .val { font-size: 1.5rem; font-weight: 700; font-family: 'Orbitron', monospace; }
+"""
+
+_NAV_HTML = """
+<div class="top-bar">
+  <h1>Paper Trading</h1>
+  <div class="nav-links">
+    <a href="/paper">Dashboard</a>
+    <a href="/paper/positions" {pos_active}>Open Positions</a>
+    <a href="/paper/trades" {trades_active}>Trade History</a>
+  </div>
+</div>
+"""
+
+
+# ── Trade History Page ────────────────────────────────────────────────────────
+
+@router.get("/paper/trades", response_class=HTMLResponse)
+async def paper_trades_page() -> HTMLResponse:
+    nav = _NAV_HTML.replace("{pos_active}", "").replace("{trades_active}", 'class="active"')
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trade History — Paper Trading</title>
+  <style>{_PAGE_CSS}</style>
+</head>
+<body>
+{nav}
+<main>
+  <div class="stat-row" id="stats-row">
+    <div class="stat-box"><div class="label">Total Trades</div><div class="val" id="st-total" style="color:var(--bright)">—</div></div>
+    <div class="stat-box"><div class="label">Wins</div><div class="val" id="st-wins" style="color:var(--green)">—</div></div>
+    <div class="stat-box"><div class="label">Losses</div><div class="val" id="st-losses" style="color:var(--red)">—</div></div>
+    <div class="stat-box"><div class="label">Win Rate</div><div class="val" id="st-wr" style="color:var(--cyan)">—</div></div>
+    <div class="stat-box"><div class="label">Total P&L</div><div class="val" id="st-pnl">—</div></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <h2>Closed Trades</h2>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="filter-bot" onchange="applyFilter()" style="background:var(--surface-solid);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:6px;font-size:0.75rem">
+          <option value="">All Bots</option>
+        </select>
+        <select id="filter-result" onchange="applyFilter()" style="background:var(--surface-solid);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:6px;font-size:0.75rem">
+          <option value="">All Results</option>
+          <option value="win">Wins Only</option>
+          <option value="loss">Losses Only</option>
+        </select>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th><th>Bot</th><th>Symbol</th><th>Side</th><th>Strategy</th>
+            <th>Entry</th><th>Exit</th><th>Size</th><th>P&L</th><th>P&L %</th>
+            <th>Hold Time</th><th>Leverage</th><th>Status</th><th>Closed At</th>
+          </tr>
+        </thead>
+        <tbody id="trades-body">
+          <tr><td colspan="14" class="empty">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="pag" id="pagination"></div>
+  </div>
+</main>
+
+<script>
+const PER_PAGE = 15;
+let allTrades = [];
+let filtered = [];
+let page = 1;
+
+async function loadTrades() {{
+  try {{
+    const r = await fetch('/api/paper/trades?limit=500');
+    const d = await r.json();
+    allTrades = (d.trades || []).reverse();
+    populateBotFilter();
+    applyFilter();
+    updateStats();
+  }} catch(e) {{ console.error(e); }}
+}}
+
+function populateBotFilter() {{
+  const bots = [...new Set(allTrades.map(t => t.bot_name))].sort();
+  const sel = document.getElementById('filter-bot');
+  bots.forEach(b => {{ const o = document.createElement('option'); o.value = b; o.textContent = b; sel.appendChild(o); }});
+}}
+
+function applyFilter() {{
+  const bot = document.getElementById('filter-bot').value;
+  const result = document.getElementById('filter-result').value;
+  filtered = allTrades.filter(t => {{
+    if (bot && t.bot_name !== bot) return false;
+    if (result === 'win' && t.realized_pnl < 0) return false;
+    if (result === 'loss' && t.realized_pnl >= 0) return false;
+    return true;
+  }});
+  page = 1;
+  render();
+}}
+
+function updateStats() {{
+  const wins = allTrades.filter(t => t.realized_pnl >= 0).length;
+  const losses = allTrades.filter(t => t.realized_pnl < 0).length;
+  const total = allTrades.length;
+  const pnl = allTrades.reduce((s, t) => s + (t.realized_pnl || 0), 0);
+  document.getElementById('st-total').textContent = total;
+  document.getElementById('st-wins').textContent = wins;
+  document.getElementById('st-losses').textContent = losses;
+  document.getElementById('st-wr').textContent = total > 0 ? (wins / total * 100).toFixed(1) + '%' : '—';
+  const pnlEl = document.getElementById('st-pnl');
+  pnlEl.textContent = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);
+  pnlEl.style.color = pnl >= 0 ? 'var(--green)' : 'var(--red)';
+}}
+
+function render() {{
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  if (page > totalPages) page = totalPages;
+  const start = (page - 1) * PER_PAGE;
+  const slice = filtered.slice(start, start + PER_PAGE);
+
+  const tbody = document.getElementById('trades-body');
+  if (!slice.length) {{
+    tbody.innerHTML = '<tr><td colspan="14" class="empty">No trades match filter</td></tr>';
+  }} else {{
+    tbody.innerHTML = slice.map((t, i) => {{
+      const idx = filtered.length - start - i;
+      const pnl = t.realized_pnl || 0;
+      const pnlClr = pnl >= 0 ? 'var(--green)' : 'var(--red)';
+      const sideClr = t.action === 'BUY' ? 'var(--green)' : 'var(--red)';
+      const arrow = t.action === 'BUY' ? '▲' : '▼';
+      const hold = formatHold(t.hold_duration_seconds);
+      const status = (t.status || '').length > 30 ? t.status.substring(0, 30) + '…' : (t.status || '—');
+      const closedAt = t.closed_at ? new Date(t.closed_at).toLocaleString() : '—';
+      const badge = pnl >= 0 ? '<span class="badge badge-win">WIN</span>' : '<span class="badge badge-loss">LOSS</span>';
+      return `<tr>
+        <td style="color:var(--muted)">${{idx}}</td>
+        <td style="color:var(--cyan)">${{t.bot_name}}</td>
+        <td style="font-weight:600">${{t.symbol}}</td>
+        <td style="color:${{sideClr}};font-weight:600">${{arrow}} ${{t.action}}</td>
+        <td style="color:var(--muted);font-size:0.7rem">${{t.strategy_name || '—'}}</td>
+        <td>${{fmt(t.entry_price)}}</td>
+        <td>${{fmt(t.exit_price)}}</td>
+        <td>$${{(t.position_size_usd || 0).toFixed(2)}}</td>
+        <td style="color:${{pnlClr}};font-weight:700">${{pnl >= 0 ? '+' : ''}}$${{pnl.toFixed(4)}}</td>
+        <td style="color:${{pnlClr}}">${{(t.pnl_pct || 0).toFixed(2)}}%</td>
+        <td style="color:var(--muted)">${{hold}}</td>
+        <td>${{t.leverage || 1}}x</td>
+        <td style="font-size:0.68rem;color:var(--muted)" title="${{t.status || ''}}">${{badge}}</td>
+        <td style="color:var(--muted);font-size:0.7rem">${{closedAt}}</td>
+      </tr>`;
+    }}).join('');
+  }}
+
+  document.getElementById('pagination').innerHTML = `
+    <button onclick="goPage(1)" ${{page===1?'disabled':''}}>« First</button>
+    <button onclick="goPage(${{page-1}})" ${{page===1?'disabled':''}}>‹ Prev</button>
+    <span>Page ${{page}} of ${{totalPages}} (${{filtered.length}} trades)</span>
+    <button onclick="goPage(${{page+1}})" ${{page===totalPages?'disabled':''}}>Next ›</button>
+    <button onclick="goPage(${{totalPages}})" ${{page===totalPages?'disabled':''}}>Last »</button>
+  `;
+}}
+
+function goPage(p) {{ page = p; render(); window.scrollTo(0, 0); }}
+function fmt(n) {{ return n != null ? parseFloat(n).toFixed(4) : '—'; }}
+function formatHold(s) {{
+  if (!s) return '—';
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s/60) + 'm ' + (s%60) + 's';
+  return Math.floor(s/3600) + 'h ' + Math.floor((s%3600)/60) + 'm';
+}}
+
+loadTrades();
+setInterval(loadTrades, 15000);
+</script>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
+
+
+# ── Open Positions Page ──────────────────────────────────────────────────────
+
+@router.get("/paper/positions", response_class=HTMLResponse)
+async def paper_positions_page() -> HTMLResponse:
+    nav = _NAV_HTML.replace("{trades_active}", "").replace("{pos_active}", 'class="active"')
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Open Positions — Paper Trading</title>
+  <style>{_PAGE_CSS}
+  .pnl-pos {{ color: var(--green); font-weight: 700; }}
+  .pnl-neg {{ color: var(--red); font-weight: 700; }}
+  .prog-wrap {{ background: rgba(255,255,255,0.06); border-radius: 4px; height: 8px; width: 100px; overflow: hidden; }}
+  .prog-fill {{ height: 100%; border-radius: 4px; transition: width 0.5s; }}
+  </style>
+</head>
+<body>
+{nav}
+<main>
+  <div class="stat-row" id="pos-stats">
+    <div class="stat-box"><div class="label">Open Positions</div><div class="val" id="sp-count" style="color:var(--bright)">—</div></div>
+    <div class="stat-box"><div class="label">Total Invested</div><div class="val" id="sp-invested" style="color:var(--cyan)">—</div></div>
+    <div class="stat-box"><div class="label">Unrealized P&L</div><div class="val" id="sp-pnl">—</div></div>
+    <div class="stat-box"><div class="label">Long</div><div class="val" id="sp-long" style="color:var(--green)">—</div></div>
+    <div class="stat-box"><div class="label">Short</div><div class="val" id="sp-short" style="color:var(--red)">—</div></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <h2>Live Open Positions</h2>
+      <button onclick="loadPositions()" style="background:none;border:1px solid var(--border);color:var(--muted);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:0.72rem">↻ Refresh</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table>
+        <thead>
+          <tr>
+            <th>Bot</th><th>Symbol</th><th>Side</th><th>Direction</th><th>Strategy</th>
+            <th>Entry</th><th>Live Price</th><th>Size</th><th>Leverage</th>
+            <th>Stop Loss</th><th>TP1</th>
+            <th>Progress</th><th>Unrealized P&L</th><th>Hold Time</th><th>Mode</th>
+          </tr>
+        </thead>
+        <tbody id="pos-body">
+          <tr><td colspan="15" class="empty">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="pag" id="pos-pag"></div>
+  </div>
+</main>
+
+<script>
+const PER_PAGE = 15;
+let positions = [];
+let posPage = 1;
+
+async function loadPositions() {{
+  try {{
+    const r = await fetch('/api/paper/positions');
+    const d = await r.json();
+    positions = d.positions || [];
+    updateStats();
+    renderPositions();
+  }} catch(e) {{ console.error(e); }}
+}}
+
+function updateStats() {{
+  const count = positions.length;
+  const invested = positions.reduce((s, p) => s + (p.position_size_usd || 0), 0);
+  const pnl = positions.reduce((s, p) => s + (p.unrealized_pnl || 0), 0);
+  const longs = positions.filter(p => p.action === 'BUY').length;
+  const shorts = positions.filter(p => p.action === 'SELL').length;
+
+  document.getElementById('sp-count').textContent = count;
+  document.getElementById('sp-invested').textContent = '$' + invested.toFixed(2);
+  const pnlEl = document.getElementById('sp-pnl');
+  pnlEl.textContent = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);
+  pnlEl.style.color = pnl >= 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('sp-long').textContent = longs;
+  document.getElementById('sp-short').textContent = shorts;
+}}
+
+function renderPositions() {{
+  const totalPages = Math.max(1, Math.ceil(positions.length / PER_PAGE));
+  if (posPage > totalPages) posPage = totalPages;
+  const start = (posPage - 1) * PER_PAGE;
+  const slice = positions.slice(start, start + PER_PAGE);
+
+  const tbody = document.getElementById('pos-body');
+  if (!slice.length) {{
+    tbody.innerHTML = '<tr><td colspan="15" class="empty">No open positions</td></tr>';
+  }} else {{
+    tbody.innerHTML = slice.map(p => {{
+      const pnl = p.unrealized_pnl || 0;
+      const pnlPct = p.unrealized_pnl_pct || 0;
+      const pnlCls = pnl >= 0 ? 'pnl-pos' : 'pnl-neg';
+      const sideClr = p.action === 'BUY' ? 'var(--green)' : 'var(--red)';
+      const arrow = p.action === 'BUY' ? '▲' : '▼';
+      const live = p.live_price ? fmt(p.live_price) : '<span style="color:var(--muted)">—</span>';
+      const liveClr = p.live_price && p.entry_price ? (p.live_price > p.entry_price ? 'var(--green)' : p.live_price < p.entry_price ? 'var(--red)' : 'var(--text)') : 'var(--text)';
+
+      // Progress to TP1
+      let prog = 0;
+      if (p.live_price && p.entry_price && p.take_profit_1) {{
+        if (p.action === 'BUY') {{
+          const range = p.take_profit_1 - p.entry_price;
+          prog = range > 0 ? Math.max(0, Math.min(100, ((p.live_price - p.entry_price) / range) * 100)) : 0;
+        }} else {{
+          const range = p.entry_price - p.take_profit_1;
+          prog = range > 0 ? Math.max(0, Math.min(100, ((p.entry_price - p.live_price) / range) * 100)) : 0;
+        }}
+      }}
+      const barClr = prog > 60 ? 'var(--green)' : prog > 30 ? 'var(--yellow)' : 'var(--red)';
+
+      const holdSec = p.opened_at ? Math.floor((Date.now() - new Date(p.opened_at)) / 1000) : 0;
+      const hold = formatHold(holdSec);
+      const mode = (p.market_mode || 'SPOT').toUpperCase();
+      const modeClr = mode === 'FUTURES' ? 'var(--yellow)' : 'var(--blue)';
+
+      return `<tr>
+        <td style="color:var(--cyan)">${{p.bot_name}}</td>
+        <td style="font-weight:600">${{p.symbol}}</td>
+        <td style="color:${{sideClr}};font-weight:600">${{arrow}} ${{p.action}}</td>
+        <td style="color:var(--muted)">${{p.direction || '—'}}</td>
+        <td style="color:var(--muted);font-size:0.7rem">${{p.strategy_name || '—'}}</td>
+        <td>${{fmt(p.entry_price)}}</td>
+        <td style="color:${{liveClr}};font-weight:600">${{live}}</td>
+        <td>$${{(p.position_size_usd || 0).toFixed(2)}}</td>
+        <td>${{p.leverage || 1}}x</td>
+        <td style="color:var(--red)">${{fmt(p.stop_loss)}}</td>
+        <td style="color:var(--green)">${{fmt(p.take_profit_1)}}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:6px">
+            <div class="prog-wrap"><div class="prog-fill" style="width:${{prog.toFixed(0)}}%;background:${{barClr}}"></div></div>
+            <span style="font-size:0.7rem;color:var(--muted)">${{prog.toFixed(0)}}%</span>
+          </div>
+        </td>
+        <td class="${{pnlCls}}">${{pnl >= 0 ? '+' : ''}}$${{pnl.toFixed(4)}} (${{pnlPct.toFixed(2)}}%)</td>
+        <td style="color:var(--muted)">${{hold}}</td>
+        <td><span style="color:${{modeClr}};font-size:0.7rem;font-weight:600">${{mode}}</span></td>
+      </tr>`;
+    }}).join('');
+  }}
+
+  document.getElementById('pos-pag').innerHTML = positions.length > PER_PAGE ? `
+    <button onclick="goPosPage(1)" ${{posPage===1?'disabled':''}}>« First</button>
+    <button onclick="goPosPage(${{posPage-1}})" ${{posPage===1?'disabled':''}}>‹ Prev</button>
+    <span>Page ${{posPage}} of ${{totalPages}} (${{positions.length}} positions)</span>
+    <button onclick="goPosPage(${{posPage+1}})" ${{posPage===totalPages?'disabled':''}}>Next ›</button>
+    <button onclick="goPosPage(${{totalPages}})" ${{posPage===totalPages?'disabled':''}}>Last »</button>
+  ` : '';
+}}
+
+function goPosPage(p) {{ posPage = p; renderPositions(); window.scrollTo(0, 0); }}
+function fmt(n) {{ return n != null ? parseFloat(n).toFixed(4) : '—'; }}
+function formatHold(s) {{
+  if (!s) return '—';
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s/60) + 'm ' + (s%60) + 's';
+  return Math.floor(s/3600) + 'h ' + Math.floor((s%3600)/60) + 'm';
+}}
+
+loadPositions();
+setInterval(loadPositions, 5000);
+</script>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
+
+
 # ── HTML Dashboard ────────────────────────────────────────────────────────────
 
 @router.get("/paper", response_class=HTMLResponse)

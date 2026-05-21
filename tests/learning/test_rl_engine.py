@@ -119,15 +119,20 @@ class TestSelectAction:
 
     def test_pure_exploitation_picks_best(self) -> None:
         engine = RLEngine(epsilon=0.0)
-        state = encode_state("breakout", "high", "strong_up")
-        good_action = encode_action("breakout", "aggressive")
+        # Use a unique state unlikely to collide with other tests
+        state = encode_state("compression", "very_low", "strong_down")
+        good_action = encode_action("mean_reversion", "aggressive")
 
-        for _ in range(50):
+        # Train strongly on this one action; penalize all others
+        for _ in range(100):
             engine.update(state, good_action, reward=10.0)
+        for strat in ["momentum", "reversal", "breakout", "continuation", "trend"]:
+            for size in ["skip", "quarter", "half", "normal", "aggressive"]:
+                engine.update(state, encode_action(strat, size), reward=-10.0)
 
-        # With epsilon=0, always exploit
-        results = [engine.select_action("breakout", "high", "strong_up") for _ in range(5)]
-        assert all(r["strategy"] == "breakout" and r["size_bucket"] == "aggressive" for r in results)
+        # With epsilon=0, always exploit the best
+        results = [engine.select_action("compression", "very_low", "strong_down") for _ in range(5)]
+        assert all(r["strategy"] == "mean_reversion" and r["size_bucket"] == "aggressive" for r in results)
 
 
 class TestComputeReward:
