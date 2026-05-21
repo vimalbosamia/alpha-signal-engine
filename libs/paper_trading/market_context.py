@@ -82,6 +82,22 @@ class MarketContextCollector:
     from different data sources.  Use merge() to combine partials.
     """
 
+    # Map IndicatorResult.name → MarketContext field name
+    _INDICATOR_MAP: dict[str, str] = {
+        "rsi": "entry_rsi",
+        "RSI": "entry_rsi",
+        "macd_histogram": "entry_macd_histogram",
+        "MACD Histogram": "entry_macd_histogram",
+        "atr": "entry_atr",
+        "ATR": "entry_atr",
+        "adx": "entry_adx",
+        "ADX": "entry_adx",
+        "bb_pct_b": "entry_bollinger_pct_b",
+        "Bollinger %B": "entry_bollinger_pct_b",
+        "vwap_deviation": "entry_vwap_deviation_pct",
+        "VWAP Deviation": "entry_vwap_deviation_pct",
+    }
+
     @staticmethod
     def from_signal(signal: Any) -> MarketContext:
         """
@@ -114,6 +130,84 @@ class MarketContextCollector:
             setup_grade=_enum_value(getattr(signal, "setup_grade", None)),
             entry_patterns=entry_patterns,
         )
+
+    @staticmethod
+    def from_signal_indicators(signal: Any) -> MarketContext:
+        """Extract indicator values from signal.indicator_results list.
+
+        Each IndicatorResult has .name and .value — maps known names to
+        MarketContext fields via _INDICATOR_MAP.
+        """
+        indicator_results = getattr(signal, "indicator_results", None)
+        if not indicator_results:
+            return MarketContext()
+
+        kwargs: dict[str, Any] = {}
+        ema_structure: Optional[str] = None
+
+        for ir in indicator_results:
+            name = getattr(ir, "name", "")
+            value = getattr(ir, "value", None)
+            if value is None:
+                continue
+
+            mapped = MarketContextCollector._INDICATOR_MAP.get(name)
+            if mapped:
+                kwargs[mapped] = float(value)
+
+            # Derive EMA structure from bias field
+            if name in ("ema_structure", "EMA Structure"):
+                ema_structure = _enum_value(getattr(ir, "bias", None)) or str(value)
+
+        if ema_structure:
+            kwargs["entry_ema_structure"] = ema_structure
+
+        # Derive ATR% if we have ATR and can get entry price
+        atr_val = kwargs.get("entry_atr")
+        if atr_val and atr_val > 0:
+            entry_mid = None
+            entry_low = getattr(signal, "entry_zone_low", None)
+            entry_high = getattr(signal, "entry_zone_high", None)
+            if entry_low and entry_high:
+                entry_mid = (entry_low + entry_high) / 2.0
+            if entry_mid and entry_mid > 0:
+                kwargs["entry_atr_pct"] = round(atr_val / entry_mid * 100, 4)
+
+        return MarketContext(**kwargs)
+
+    @staticmethod
+    def from_signal_full(signal: Any) -> MarketContext:
+        """Build complete context by merging signal + indicator_results.
+
+        Single call that extracts everything available on a SignalOutput.
+        """
+        ctx_signal = MarketContextCollector.from_signal(signal)
+        ctx_indicators = MarketContextCollector.from_signal_indicators(signal)
+
+        # Session detection from signal's session_status
+        session_str = _enum_value(getattr(signal, "session_status", None))
+
+        # Volume/macro from risk_result if available
+        risk = getattr(signal, "risk_result", None)
+        spread_pct = None
+        if risk:
+            spread_warn = getattr(risk, "spread_warning", "")
+            if spread_warn:
+                # Try extracting numeric spread from warning text
+                try:
+                    import re
+                    m = re.search(r"(\d+\.?\d*)", spread_warn)
+                    if m:
+                        spread_pct = float(m.group(1))
+                except Exception:
+                    pass
+
+        ctx_session = MarketContext(
+            entry_session=session_str,
+            entry_spread_pct=spread_pct,
+        )
+
+        return MarketContextCollector.merge(ctx_signal, ctx_indicators, ctx_session)
 
     @staticmethod
     def from_indicators(

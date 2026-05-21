@@ -213,3 +213,187 @@ def test_to_dict_full_context():
     # None fields not present
     assert "entry_macd_histogram" not in result
     assert "entry_news_sentiment" not in result
+
+
+# ── Gap 1: from_signal_indicators tests ──────────────────────────────────────
+
+def _make_indicator_result(name: str, value: float, bias: str = "NEUTRAL"):
+    """Mock an IndicatorResult."""
+    ir = MagicMock()
+    ir.name = name
+    ir.value = value
+    ir.bias = MagicMock()
+    ir.bias.value = bias
+    return ir
+
+
+def test_from_signal_indicators_extracts_known_fields():
+    """Known indicator names map to correct MarketContext fields."""
+    from libs.paper_trading.market_context import MarketContextCollector
+
+    sig = MagicMock()
+    sig.indicator_results = [
+        _make_indicator_result("rsi", 65.0),
+        _make_indicator_result("macd_histogram", 0.005),
+        _make_indicator_result("atr", 350.0),
+        _make_indicator_result("adx", 28.0),
+        _make_indicator_result("bb_pct_b", 0.72),
+    ]
+    sig.entry_zone_low = 49000.0
+    sig.entry_zone_high = 51000.0
+
+    ctx = MarketContextCollector.from_signal_indicators(sig)
+
+    assert ctx.entry_rsi == 65.0
+    assert ctx.entry_macd_histogram == 0.005
+    assert ctx.entry_atr == 350.0
+    assert ctx.entry_adx == 28.0
+    assert ctx.entry_bollinger_pct_b == 0.72
+    # ATR% derived from ATR / mid-price
+    assert ctx.entry_atr_pct is not None
+    assert abs(ctx.entry_atr_pct - (350.0 / 50000.0 * 100)) < 0.01
+
+
+def test_from_signal_indicators_empty():
+    """Empty indicator_results produces empty context."""
+    from libs.paper_trading.market_context import MarketContextCollector
+
+    sig = MagicMock()
+    sig.indicator_results = []
+
+    ctx = MarketContextCollector.from_signal_indicators(sig)
+    assert ctx.entry_rsi is None
+    assert ctx.entry_atr is None
+
+
+def test_from_signal_indicators_unknown_names_ignored():
+    """Unknown indicator names don't crash, just get ignored."""
+    from libs.paper_trading.market_context import MarketContextCollector
+
+    sig = MagicMock()
+    sig.indicator_results = [
+        _make_indicator_result("exotic_indicator", 42.0),
+    ]
+
+    ctx = MarketContextCollector.from_signal_indicators(sig)
+    assert ctx.entry_rsi is None  # unknown indicator didn't set any field
+
+
+def test_from_signal_full_merges_all():
+    """from_signal_full combines signal-level + indicator-level context."""
+    from libs.paper_trading.market_context import MarketContextCollector
+
+    sig = _make_signal(
+        timeframe_value="15m",
+        regime_value="breakout",
+        confidence=0.88,
+    )
+    sig.indicator_results = [
+        _make_indicator_result("rsi", 72.0),
+        _make_indicator_result("adx", 35.0),
+    ]
+    sig.session_status = MagicMock()
+    sig.session_status.value = "new_york"
+    sig.risk_result = None
+    sig.entry_zone_low = 100.0
+    sig.entry_zone_high = 110.0
+
+    ctx = MarketContextCollector.from_signal_full(sig)
+
+    # Signal fields
+    assert ctx.timeframe == "15m"
+    assert ctx.market_regime == "breakout"
+    assert ctx.entry_confidence == 0.88
+    # Indicator fields
+    assert ctx.entry_rsi == 72.0
+    assert ctx.entry_adx == 35.0
+    # Session field
+    assert ctx.entry_session == "new_york"
+
+
+# ── Gap 6: PaperTradeRecord market context field validation ──────────────────
+
+def test_paper_trade_record_has_all_context_fields():
+    """PaperTradeRecord has all 30+ market context columns."""
+    from libs.paper_trading.models import PaperTradeRecord
+    from datetime import datetime, timezone
+
+    rec = PaperTradeRecord(
+        id="test-ctx-001",
+        bot_name="MomentumBot",
+        symbol="BTCUSDT",
+        asset_class="crypto",
+        action="BUY",
+        entry_price=50000.0,
+        position_size_usd=100.0,
+        fees=0.2,
+        strategy_name="momentum_breakout",
+        signal_id="sig-1",
+        opened_at=datetime.now(timezone.utc),
+        status="OPEN",
+        # All context fields
+        timeframe="15m",
+        market_regime="trending_up",
+        entry_rsi=55.0,
+        entry_macd_histogram=0.5,
+        entry_ema_structure="bullish_aligned",
+        entry_atr=350.0,
+        entry_atr_pct=0.7,
+        entry_bollinger_pct_b=0.75,
+        entry_adx=28.0,
+        entry_vwap_deviation_pct=0.3,
+        entry_volume_relative=1.5,
+        entry_volume_trend="increasing",
+        entry_orderflow_bias="bullish",
+        entry_liquidity_state="healthy",
+        entry_news_sentiment="neutral",
+        entry_macro_environment="risk_on",
+        entry_dxy_trend="down",
+        entry_bond_yield_trend="stable",
+        entry_btc_dominance_trend="rising",
+        entry_fear_greed_index=65,
+        entry_session="new_york",
+        entry_spread_pct=0.05,
+        entry_funding_rate=0.01,
+        entry_open_interest_trend="rising",
+        entry_patterns="bullish_engulfing,pin_bar",
+        entry_confluence_score=0.72,
+        entry_bias_score=0.65,
+        entry_confidence=0.78,
+        setup_grade="B+",
+        leverage=1.0,
+        trading_mode="spot",
+        slippage_pct=0.0,
+        execution_latency_ms=0,
+    )
+    assert rec.market_regime == "trending_up"
+    assert rec.entry_rsi == 55.0
+    assert rec.entry_atr == 350.0
+    assert rec.entry_patterns == "bullish_engulfing,pin_bar"
+    assert rec.entry_fear_greed_index == 65
+    assert rec.leverage == 1.0
+
+
+def test_paper_trade_record_context_fields_nullable():
+    """Market context fields are nullable (not always available)."""
+    from libs.paper_trading.models import PaperTradeRecord
+    from datetime import datetime, timezone
+
+    rec = PaperTradeRecord(
+        id="test-ctx-002",
+        bot_name="ScalperBot",
+        symbol="ETHUSDT",
+        asset_class="crypto",
+        action="SELL",
+        entry_price=3000.0,
+        position_size_usd=50.0,
+        fees=0.1,
+        strategy_name="scalp_reversal",
+        signal_id="sig-2",
+        opened_at=datetime.now(timezone.utc),
+        status="OPEN",
+    )
+    assert rec.entry_rsi is None
+    assert rec.entry_macd_histogram is None
+    assert rec.market_regime is None
+    assert rec.entry_patterns is None

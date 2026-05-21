@@ -102,9 +102,22 @@ class PaperTradingEngine:
         """Fan signal to bots with exposure guards.
 
         Guards:
+        - Safety mode gate (blocks all new trades in PANIC/NO_TRADE)
         - Max 3 bots per symbol+direction (prevents herding)
         - Max 65% of total positions in one direction (prevents directional bias)
         """
+        # Guard 0: Safety mode — block new trades when in PANIC or NO_TRADE
+        try:
+            from libs.risk.safety_mode import get_safety_manager
+            safety = get_safety_manager()
+            if not safety.is_trading_allowed():
+                log.warning("safety_mode_blocked_signal",
+                            symbol=signal.symbol,
+                            mode=safety.current_mode.name)
+                return []
+        except Exception:
+            pass
+
         action_str = signal.action.value if hasattr(signal.action, "value") else str(signal.action)
 
         # Guard 1: per-symbol bot limit

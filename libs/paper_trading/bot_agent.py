@@ -218,8 +218,29 @@ class BotAgent(ABC):
                        reason=validation.reason, market_mode=market_mode)
             return None
 
-        # ── Collect market context for self-training ──
-        market_ctx = MarketContextCollector.from_signal(signal)
+        # ── Collect full market context for self-training ──
+        market_ctx = MarketContextCollector.from_signal_full(signal)
+
+        # ── Query vector memory for similar historical conditions ──
+        try:
+            from libs.learning.vector_memory import get_vector_memory
+            vm = get_vector_memory()
+            if vm.size > 10:
+                ctx_dict = market_ctx.to_dict()
+                ctx_dict["regime"] = ctx_dict.get("market_regime", regime_str)
+                similar = vm.get_win_rate_for_similar(ctx_dict, k=10, min_similarity=0.5)
+                # Reject if strong historical evidence of losses in similar conditions
+                if similar["sample_size"] >= 5 and similar["win_rate"] < 0.25:
+                    from libs.core.logging.logger import get_logger
+                    _log = get_logger(__name__)
+                    _log.info("vector_memory_reject",
+                              bot=self.NAME, symbol=signal.symbol,
+                              strategy=signal.strategy_name,
+                              hist_win_rate=similar["win_rate"],
+                              sample_size=similar["sample_size"])
+                    return None
+        except Exception:
+            pass
 
         trade_id = self._portfolio.open_trade(
             symbol=signal.symbol,
@@ -499,6 +520,23 @@ class BotAgent(ABC):
                     confidence=getattr(trade, "entry_confidence", 0.5) or 0.5,
                     patterns=trade_patterns_list,
                     regime=trade_regime,
+                )
+            except Exception:
+                pass
+
+            # ── Update safety mode with trade outcome ──
+            try:
+                from libs.risk.safety_mode import get_safety_manager
+                safety = get_safety_manager()
+                if trade_won:
+                    safety.record_win()
+                else:
+                    safety.record_loss()
+                # Update drawdown-based mode from portfolio metrics
+                metrics = self._portfolio.get_metrics()
+                safety.update(
+                    drawdown_pct=metrics.get("max_drawdown", 0.0) * 100,
+                    consecutive_losses=self._consecutive_losses,
                 )
             except Exception:
                 pass

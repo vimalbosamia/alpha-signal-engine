@@ -305,6 +305,11 @@ class PaperPortfolio:
             "mae": getattr(trade, 'mae', 0.0),
             "mfe_price": getattr(trade, 'mfe_price', 0.0),
             "mae_price": getattr(trade, 'mae_price', 0.0),
+            # Carry market context through for learning subsystems
+            "market_context": getattr(trade, 'market_context', None),
+            "entry_patterns": getattr(trade, 'entry_patterns', None),
+            "entry_confidence": getattr(trade, 'entry_confidence', None),
+            "regime": getattr(trade, 'entry_regime', 'unknown'),
         }
 
         self._open_trades = [t for t in self._open_trades if t.id != trade_id]
