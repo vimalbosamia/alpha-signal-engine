@@ -124,10 +124,11 @@ class SelfTrainingCoordinator:
         regime: str = "unknown",
         disciplined_exit: bool = True,
         regime_aligned: bool = True,
+        force_all: bool = False,
     ) -> None:
         """Process a closed trade, dispatching to active subsystems.
 
-        Phase gating:
+        Phase gating (bypassed when force_all=True for bulk/retroactive training):
         - Phase 2+: PatternScoreStore
         - Phase 4+: StrategyParameterTuner
         - Phase 5+: RewardEngine
@@ -152,8 +153,8 @@ class SelfTrainingCoordinator:
 
         active_patterns = patterns or []
 
-        # Phase 2+: Pattern scoring
-        if self._current_phase >= TrainingPhase.STATISTICAL_LEARNING:
+        # Phase 2+: Pattern scoring (or force_all for bulk training)
+        if force_all or self._current_phase >= TrainingPhase.STATISTICAL_LEARNING:
             try:
                 from libs.learning.pattern_scorer import get_pattern_store
                 store = get_pattern_store()
@@ -165,8 +166,8 @@ class SelfTrainingCoordinator:
                     error=str(exc),
                 )
 
-        # Phase 4+: Strategy parameter tuning
-        if self._current_phase >= TrainingPhase.ADAPTIVE_OPTIMIZATION:
+        # Phase 4+: Strategy parameter tuning (or force_all)
+        if force_all or self._current_phase >= TrainingPhase.ADAPTIVE_OPTIMIZATION:
             try:
                 from libs.learning.strategy_tuner import get_strategy_tuner
                 tuner = get_strategy_tuner()
@@ -182,8 +183,8 @@ class SelfTrainingCoordinator:
                     error=str(exc),
                 )
 
-        # Phase 5+: Reinforcement learning reward/penalty
-        if self._current_phase >= TrainingPhase.REINFORCEMENT_LEARNING:
+        # Phase 5+: Reinforcement learning reward/penalty (or force_all)
+        if force_all or self._current_phase >= TrainingPhase.REINFORCEMENT_LEARNING:
             try:
                 from libs.learning.reward_engine import get_reward_engine
                 engine = get_reward_engine()

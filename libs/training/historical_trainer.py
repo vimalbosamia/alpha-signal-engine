@@ -269,17 +269,19 @@ class HistoricalTrainer:
                     regime = getattr(trade, "regime", "unknown") or "unknown"
                     strategy_name = getattr(strategy, "name", str(strategy.__class__.__name__))
 
-                    # Feed to coordinator
+                    # Feed to coordinator (force_all=True bypasses phase gating
+                    # so ALL subsystems learn from every historical trade)
                     coordinator.on_trade_close(
                         strategy=strategy_name,
                         won=won,
-                        pnl=trade.pnl_r,  # use R-multiples as pnl
+                        pnl=trade.pnl_r,
                         rr=abs(trade.pnl_r) if trade.pnl_r > 0 else abs(trade.pnl_r) * -1,
-                        confidence=0.5,  # backtest doesn't track confidence
+                        confidence=0.5,
                         patterns=patterns,
                         regime=regime,
                         disciplined_exit=trade.outcome in ("WIN_TP1", "WIN_TP2", "LOSS_SL"),
-                        regime_aligned=won,  # rough proxy
+                        regime_aligned=won,
+                        force_all=True,
                     )
 
             except Exception as exc:

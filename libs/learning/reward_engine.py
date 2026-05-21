@@ -338,12 +338,13 @@ class RewardEngine:
     # ── Internals ─────────────────────────────────────────────────────────────
 
     def _assert_known(self, strategy: str) -> None:
-        """Raise ValueError if strategy is not tracked by this engine."""
+        """Auto-register unknown strategies so new strategies can be learned."""
         if strategy not in self._scores:
-            raise ValueError(
-                f"Unknown strategy '{strategy}'. "
-                f"Known: {sorted(self._strategies)}"
-            )
+            self._strategies.append(strategy)
+            self._scores[strategy] = 0.0
+            self._reward_counts[strategy] = 0
+            self._penalty_counts[strategy] = 0
+            _log.debug("strategy_auto_registered", strategy=strategy)
 
 
 # ── Module-level singleton ────────────────────────────────────────────────────
