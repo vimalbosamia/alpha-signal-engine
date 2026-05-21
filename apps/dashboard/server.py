@@ -288,6 +288,59 @@ async def manual_scan(
     })
 
 
+# ── Self-Training / Learning Endpoints ────────────────────────────────────────
+
+
+@app.get("/api/training-progress")
+async def training_progress() -> JSONResponse:
+    """Return comprehensive training progress report."""
+    try:
+        from libs.learning.coordinator import get_coordinator
+        return JSONResponse(content=get_coordinator().get_training_progress())
+    except Exception as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=500)
+
+
+@app.get("/api/pattern-scores")
+async def pattern_scores() -> JSONResponse:
+    """Return pattern+regime win rate statistics."""
+    try:
+        from libs.learning.pattern_scorer import get_pattern_store
+        return JSONResponse(content=get_pattern_store().get_all_stats())
+    except Exception as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=500)
+
+
+@app.get("/api/strategy-tuner")
+async def strategy_tuner_stats() -> JSONResponse:
+    """Return auto-tuned strategy parameters."""
+    try:
+        from libs.learning.strategy_tuner import get_strategy_tuner
+        return JSONResponse(content=get_strategy_tuner().get_all_stats())
+    except Exception as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=500)
+
+
+@app.get("/api/safety-mode")
+async def safety_mode() -> JSONResponse:
+    """Return current safety mode and transition history."""
+    try:
+        from libs.risk.safety_mode import get_safety_manager
+        return JSONResponse(content=get_safety_manager().get_stats())
+    except Exception as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=500)
+
+
+@app.get("/api/reward-engine")
+async def reward_engine() -> JSONResponse:
+    """Return RL-lite strategy probabilities and scores."""
+    try:
+        from libs.learning.reward_engine import get_reward_engine
+        return JSONResponse(content=get_reward_engine().get_stats())
+    except Exception as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=500)
+
+
 # ── Single-page HTML Dashboard ────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)

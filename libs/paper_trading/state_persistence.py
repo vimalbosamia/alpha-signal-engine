@@ -137,10 +137,76 @@ def save_all(engine) -> None:
             save_bot_state(bot)
         from libs.paper_trading.shared_memory import get_shared_memory
         save_shared_memory(get_shared_memory())
+
+        # ── Save learning subsystems ──
+        _save_learning_systems()
+
         log.info("state_saved", bots=len(engine._bots),
                  path=STATE_DIR)
     except Exception as exc:
         log.warning("state_save_failed", error=str(exc))
+
+
+def _save_learning_systems() -> None:
+    """Save all self-training subsystem state to disk."""
+    _ensure_dir()
+    learning_dir = os.path.join(STATE_DIR, "learning")
+    os.makedirs(learning_dir, exist_ok=True)
+
+    try:
+        from libs.learning.pattern_scorer import get_pattern_store
+        get_pattern_store().save(os.path.join(learning_dir, "pattern_scores.json"))
+    except Exception:
+        pass
+
+    try:
+        from libs.learning.strategy_tuner import get_strategy_tuner
+        get_strategy_tuner().save(os.path.join(learning_dir, "strategy_tuner.json"))
+    except Exception:
+        pass
+
+    try:
+        from libs.learning.reward_engine import get_reward_engine
+        get_reward_engine().save(os.path.join(learning_dir, "reward_engine.json"))
+    except Exception:
+        pass
+
+    try:
+        from libs.learning.coordinator import get_coordinator
+        get_coordinator().save(os.path.join(learning_dir, "coordinator.json"))
+    except Exception:
+        pass
+
+
+def _restore_learning_systems() -> None:
+    """Restore all self-training subsystem state from disk."""
+    learning_dir = os.path.join(STATE_DIR, "learning")
+    if not os.path.isdir(learning_dir):
+        return
+
+    try:
+        from libs.learning.pattern_scorer import get_pattern_store
+        get_pattern_store().load(os.path.join(learning_dir, "pattern_scores.json"))
+    except Exception:
+        pass
+
+    try:
+        from libs.learning.strategy_tuner import get_strategy_tuner
+        get_strategy_tuner().load(os.path.join(learning_dir, "strategy_tuner.json"))
+    except Exception:
+        pass
+
+    try:
+        from libs.learning.reward_engine import get_reward_engine
+        get_reward_engine().load(os.path.join(learning_dir, "reward_engine.json"))
+    except Exception:
+        pass
+
+    try:
+        from libs.learning.coordinator import get_coordinator
+        get_coordinator().load(os.path.join(learning_dir, "coordinator.json"))
+    except Exception:
+        pass
 
 
 # ── Load functions ───────────────────────────────────────────────────────────
@@ -296,6 +362,9 @@ def restore_all(engine) -> bool:
     if mem_state:
         from libs.paper_trading.shared_memory import get_shared_memory
         restore_shared_memory(get_shared_memory(), mem_state)
+
+    # Restore learning subsystems
+    _restore_learning_systems()
 
     log.info("state_restored", bots=restored_bots,
              equity_points=len(engine._equity_snapshots),
