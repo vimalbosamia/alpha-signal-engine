@@ -23,7 +23,7 @@ from typing import Any
 import pandas as pd
 
 from libs.core.models.domain import (
-    AssetClass, SignalOutput, SignalAction, Timeframe
+    AssetClass, SignalCandidate, SignalOutput, SignalAction, Timeframe
 )
 from libs.core.config.settings import get_settings
 from libs.core.logging.logger import get_logger
@@ -56,6 +56,8 @@ from libs.signals.confluence.engine import ConfluenceEngine
 from libs.signals.output.emitter import SignalEmitter
 from libs.risk.engine import RiskEngine
 from libs.strategies.base.strategy import BaseStrategy
+from libs.confluence.engine import ConfluenceV2Engine
+from libs.confluence.scorer import meets_threshold
 from libs.monitoring.outcome_tracker import is_strategy_muted
 from libs.monitoring.portfolio_guard import PortfolioGuard, GuardConfig, get_portfolio_guard
 from libs.audit.audit_log import AuditLog, AuditEvent
@@ -113,6 +115,7 @@ class SignalPipeline:
         self._regime = RegimeEngine()
         self._indicators = IndicatorsEngine()
         self._confluence = ConfluenceEngine()
+        self._confluence_v2 = ConfluenceV2Engine()
         self._risk = RiskEngine()
         self._emitter = SignalEmitter(
             agent_mode=get_settings().agent_mode.value,
@@ -171,21 +174,19 @@ class SignalPipeline:
             regime = self._regime.analyze(df)
             indicators = self._indicators.compute(df)
 
-            # ── 5. Strategies ─────────────────────────────────────────────
+            # ── 5. Pass 1: Collect ALL strategy candidates ─────────────────
+            all_candidates: list[SignalCandidate] = []
+            pattern_results = [det.detect(df) for det in DEFAULT_DETECTORS]
+
             for strategy in self._strategies:
                 if not strategy.is_eligible(asset_class, session, quality):
                     continue
                 if len(df) < strategy.min_bars_required:
                     continue
-                # Skip strategies auto-muted by poor win rate
                 if is_strategy_muted(strategy.name):
                     log.debug("strategy_muted_skipped", strategy=strategy.name, symbol=symbol)
                     continue
 
-                # Run pattern detectors
-                pattern_results = [det.detect(df) for det in DEFAULT_DETECTORS]
-
-                # Volume context per strategy (uses proposed_action from candidate)
                 try:
                     candidate = strategy.generate_candidate(
                         symbol=symbol,
@@ -196,7 +197,7 @@ class SignalPipeline:
                         quality=quality,
                         structure=structure,
                         levels=levels,
-                        volume=None,   # volume assessed after candidate exists
+                        volume=None,
                         regime=regime,
                         indicators=indicators,
                     )
@@ -209,29 +210,104 @@ class SignalPipeline:
                     )
                     continue
 
-                if candidate is None:
+                if candidate is not None:
+                    candidate = candidate.model_copy(
+                        update={"pattern_results": pattern_results}
+                    )
+                    all_candidates.append(candidate)
+
+            if not all_candidates:
+                return []
+
+            # ── 6. Pass 2: Confluence V2 — multi-layer scoring ───────────
+            # Build indicator dict for confirmation/suppression layers
+            ind_dict = None
+            if indicators:
+                last_row = df.iloc[-1] if len(df) > 0 else None
+                ind_dict = dict(indicators)
+                if last_row is not None:
+                    ind_dict.setdefault("close", float(last_row.get("close", 0)))
+                    ind_dict.setdefault("volume_relative", indicators.get("volume_relative"))
+                # Add prev_rsi for divergence detection
+                if len(df) > 1:
+                    prev_row = df.iloc[-2]
+                    prev_indicators = self._indicators.compute(df.iloc[:-1])
+                    ind_dict["prev_rsi"] = prev_indicators.get("rsi")
+
+            # Build bias data from indicators
+            bias_data = None
+            if ind_dict:
+                bias_data = {
+                    "bullish": ind_dict.get("bullish_score", 0.0),
+                    "bearish": ind_dict.get("bearish_score", 0.0),
+                    "net": ind_dict.get("bias_net", "neutral"),
+                }
+
+            confluence_results = self._confluence_v2.evaluate(
+                symbol=symbol,
+                candidates=all_candidates,
+                regime=regime,
+                structure=structure,
+                bias_data=bias_data,
+                indicators=ind_dict,
+            )
+
+            log.debug(
+                "confluence_v2_results",
+                symbol=symbol,
+                candidates=len(all_candidates),
+                results=len(confluence_results),
+                scores=[
+                    f"{r.direction}:{r.primary_strategy}={r.confluence_score:.0f}"
+                    for r in confluence_results
+                ],
+            )
+
+            # ── 7. Emit signals — one per confluence result ──────────────
+            for cr in confluence_results:
+                # Find the primary trigger candidate
+                primary = next(
+                    (c for c in all_candidates
+                     if c.strategy_name == cr.primary_strategy
+                     and c.proposed_action.value == cr.direction),
+                    None,
+                )
+                if primary is None:
                     continue
 
-                # Attach patterns from detectors to candidate
-                candidate = candidate.model_copy(
-                    update={"pattern_results": pattern_results}
-                )
-
-                # Volume context now that we have proposed_action
-                volume = self._volume.analyze(df, candidate.proposed_action)
-
-                # Risk assessment
-                risk = self._risk.assess(candidate)
-
-                # Confluence scoring
+                volume = self._volume.analyze(df, primary.proposed_action)
+                risk = self._risk.assess(primary)
                 breakdown = self._confluence.score(
-                    candidate, structure, levels, volume, regime, risk
+                    primary, structure, levels, volume, regime, risk
                 )
 
-                # Emit signal
-                output = self._emitter.emit(candidate, breakdown)
+                output = self._emitter.emit(primary, breakdown)
 
-                # ── ML filter: block signals predicted as low-win-probability ──
+                # Enrich with V2 confluence metadata
+                v2_warnings = list(output.warnings or [])
+                v2_warnings.append(
+                    f"CONFLUENCE_V2: score={cr.confluence_score:.0f} "
+                    f"quality={cr.trade_quality} layers={cr.layer_count} "
+                    f"primary={cr.primary_strategy} "
+                    f"supporting=[{','.join(cr.supporting_strategies)}] "
+                    f"confirmations=[{','.join(cr.confirmation_signals)}] "
+                    f"suppressions=[{','.join(cr.suppression_signals)}]"
+                )
+
+                # Override confidence with V2 score (normalized 0-1)
+                v2_confidence = min(1.0, cr.confluence_score / 100.0)
+                output = output.model_copy(update={
+                    "confidence": v2_confidence,
+                    "warnings": v2_warnings,
+                    "explanation": (
+                        f"Multi-layer confluence: {cr.primary_strategy} "
+                        f"+ {len(cr.supporting_strategies)} supporting "
+                        f"+ {len(cr.confirmation_signals)} confirmations. "
+                        f"Score: {cr.confluence_score:.0f}/100 ({cr.trade_quality})"
+                    ),
+                })
+
+                # ── ML filter ──
                 try:
                     from libs.ml.signal_classifier import get_classifier
                     clf = get_classifier()
@@ -244,8 +320,6 @@ class SignalPipeline:
                                 strategy=output.strategy_name,
                                 win_prob=round(win_prob, 3),
                             )
-                            # Re-emit as NO_TRADE with ML block note
-                            from libs.signals.output.emitter import SignalEmitter
                             output = output.model_copy(update={
                                 "action": SignalAction.NO_TRADE,
                                 "warnings": list(output.warnings or []) + [
@@ -253,16 +327,15 @@ class SignalPipeline:
                                 ],
                             })
                         else:
-                            # Attach ML win probability to warnings for visibility
                             output = output.model_copy(update={
                                 "warnings": list(output.warnings or []) + [
                                     f"ML_WIN_PROB: {win_prob:.0%}"
                                 ],
                             })
                 except Exception:
-                    pass  # ML unavailable — proceed without filtering
+                    pass
 
-                # ── Portfolio guard: check exposure limits ─────────────────
+                # ── Portfolio guard ──
                 if output.action != SignalAction.NO_TRADE:
                     decision = self._guard.is_allowed(output)
                     if decision.blocked:
@@ -283,7 +356,7 @@ class SignalPipeline:
 
                 outputs.append(output)
 
-                # Persist to DB + audit log + metrics + event bus
+                # Persist + publish
                 await self._audit.record_signal(output)
                 self._metrics.record_signal(output)
                 try:
@@ -297,9 +370,19 @@ class SignalPipeline:
                     "action": output.action.value,
                     "confidence": output.confidence,
                     "strategy": output.strategy_name,
+                    "confluence_score": cr.confluence_score,
+                    "trade_quality": cr.trade_quality,
+                    "supporting": list(cr.supporting_strategies),
+                    "confirmations": list(cr.confirmation_signals),
                 })
 
-                log.info("signal_emitted", signal=output.to_display())
+                log.info(
+                    "signal_emitted",
+                    signal=output.to_display(),
+                    confluence_score=cr.confluence_score,
+                    quality=cr.trade_quality,
+                    layers=cr.layer_count,
+                )
 
         except Exception as exc:
             log.error(
