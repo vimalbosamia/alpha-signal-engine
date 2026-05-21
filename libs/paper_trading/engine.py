@@ -200,6 +200,14 @@ class PaperTradingEngine:
         total_pnl_pct = (total_pnl / self._initial_capital * 100.0) if self._initial_capital else 0.0
         uptime = (datetime.now(timezone.utc) - self._started_at).total_seconds()
 
+        # Fetch training progress from coordinator (best-effort)
+        training_progress: dict = {}
+        try:
+            from libs.learning.coordinator import get_coordinator
+            training_progress = get_coordinator().get_training_progress()
+        except Exception:
+            pass
+
         return {
             "total_balance": total_balance,
             "initial_capital": self._initial_capital,
@@ -209,6 +217,21 @@ class PaperTradingEngine:
             "uptime_seconds": uptime,
             "started_at": self._started_at.isoformat(),
             "bots": bot_entries,
+            "training": self._sanitize({
+                "phase": training_progress.get("phase_number", 1),
+                "phase_name": training_progress.get("phase", "DATA_COLLECTION"),
+                "next_phase": training_progress.get("next_phase", ""),
+                "total_trades": training_progress.get("total_trades", 0),
+                "total_wins": training_progress.get("wins", 0),
+                "win_rate": training_progress.get("win_rate", 0.0),
+                "tune_cycles": training_progress.get("tune_cycles", 0),
+                "active_subsystems": training_progress.get("active_subsystems", []),
+                "next_phase_at": training_progress.get("next_phase_at_trades", 100),
+                "progress_pct": min(100, round(
+                    training_progress.get("total_trades", 0)
+                    / max(1, training_progress.get("next_phase_at_trades", 100)) * 100
+                )),
+            }),
         }
 
     # ── Open positions ─────────────────────────────────────────────────────────

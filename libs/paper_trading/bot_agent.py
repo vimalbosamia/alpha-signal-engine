@@ -261,6 +261,12 @@ class BotAgent(ABC):
 
     # ── Exit checking ──────────────────────────────────────────────────────────
 
+    # ── Breakout strategies for failure detection ──
+    _BREAKOUT_STRATEGIES: frozenset[str] = frozenset({
+        "resistance_breakout", "support_breakdown", "volume_breakout",
+        "atr_breakout", "range_breakout", "opening_range_breakout",
+    })
+
     # ── Strategy-specific expected move durations (minutes) ──
     _STRATEGY_MAX_HOLD: dict[str, int] = {
         "candle_direction_flip": 30,
@@ -379,12 +385,8 @@ class BotAgent(ABC):
                     mgmt_reason = f"Cutting loss: {unrealized_pct:.2f}% after {hold_minutes:.0f}m"
 
                 # Rule 4: Breakout failure — didn't move 0.5% in 15 min
-                _BREAKOUT_STRATEGIES = {
-                    "resistance_breakout", "support_breakdown", "volume_breakout",
-                    "atr_breakout", "range_breakout", "opening_range_breakout",
-                }
                 if (not hit_management
-                        and trade.strategy_name in _BREAKOUT_STRATEGIES
+                        and trade.strategy_name in self._BREAKOUT_STRATEGIES
                         and hold_minutes > 15
                         and trade.mfe < 0.5):
                     hit_management = True

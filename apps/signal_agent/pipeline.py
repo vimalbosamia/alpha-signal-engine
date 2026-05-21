@@ -510,12 +510,13 @@ class SignalPipeline:
                 regime_val = regime.regime.value if hasattr(regime.regime, "value") else str(regime.regime)
                 structure_override = deep_structure and deep_structure.strength > 0.6
                 is_paper_mode = self._bus is not None  # paper mode has event bus wired
+                regime_penalty = 0.0  # per-candidate, not accumulated
                 if not structure_override:
                     regime_check = self._regime_matrix.check(strategy.name, regime_val)
                     if not regime_check.is_allowed:
                         if is_paper_mode:
                             # Soft penalty — let bots learn but penalize mismatched signals
-                            macro_confidence_adj -= 0.15
+                            regime_penalty = -0.15
                             log.debug("regime_matrix_soft_penalty", symbol=symbol,
                                       strategy=strategy.name, regime=regime_val,
                                       penalty=-0.15)
@@ -637,10 +638,11 @@ class SignalPipeline:
                     except Exception:
                         pass
 
-                # Apply macro confidence adjustment
-                if macro_confidence_adj != 0 and hasattr(breakdown, 'model_copy'):
+                # Apply macro confidence adjustment + per-candidate regime penalty
+                total_macro_adj = macro_confidence_adj + regime_penalty
+                if total_macro_adj != 0 and hasattr(breakdown, 'model_copy'):
                     try:
-                        adjusted = max(0.0, min(1.0, breakdown.weighted_total + macro_confidence_adj))
+                        adjusted = max(0.0, min(1.0, breakdown.weighted_total + total_macro_adj))
                         breakdown = breakdown.model_copy(update={"weighted_total": adjusted})
                     except Exception:
                         pass

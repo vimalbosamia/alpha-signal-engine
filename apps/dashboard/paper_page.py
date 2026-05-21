@@ -885,11 +885,12 @@ async def paper_dashboard() -> HTMLResponse:
             <th>Trades</th>
             <th>Sharpe</th>
             <th>Phase</th>
+            <th>Training</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody id="leaderboard-body">
-          <tr><td colspan="10" class="empty">Loading…</td></tr>
+          <tr><td colspan="11" class="empty">Loading…</td></tr>
         </tbody>
       </table>
     </div>
@@ -1078,12 +1079,12 @@ async function loadSummary() {
     const r = await fetch('/api/paper/summary');
     if (r.status === 503) {
       document.getElementById('leaderboard-body').innerHTML =
-        '<tr><td colspan="10" class="empty muted">Paper trading engine not started</td></tr>';
+        '<tr><td colspan="11" class="empty muted">Paper trading engine not started</td></tr>';
       return;
     }
     const d = await r.json();
     updateHero(d);
-    renderLeaderboard(d.bots || []);
+    renderLeaderboard(d.bots || [], d.training || {});
   } catch (e) {
     console.error('loadSummary error', e);
   }
@@ -1115,12 +1116,20 @@ function updateHero(d) {
   document.getElementById('hero-open-pos').textContent = d.total_open_positions ?? 0;
 }
 
-function renderLeaderboard(bots) {
+function renderLeaderboard(bots, training) {
   const tbody = document.getElementById('leaderboard-body');
   if (!bots.length) {
-    tbody.innerHTML = '<tr><td colspan="10" class="empty muted">No bots registered yet</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" class="empty muted">No bots registered yet</td></tr>';
     return;
   }
+
+  // Training progress data
+  const tPhase = training.phase_name ?? 'COLD_START';
+  const tPct = training.progress_pct ?? 0;
+  const tTrades = training.total_trades ?? 0;
+  const tNextAt = training.next_phase_at ?? 0;
+  const tSubs = (training.active_subsystems ?? []).length;
+  const tTune = training.tune_cycles ?? 0;
 
   // Sort by effective_balance descending
   const sorted = [...bots].sort((a, b) => (b.effective_balance ?? 0) - (a.effective_balance ?? 0));
@@ -1139,6 +1148,10 @@ function renderLeaderboard(bots) {
     const phase = (bot.phase ?? 'cold_start').toUpperCase();
     const phaseCls = phase === 'FULL' ? 'running' : phase === 'PAUSED' ? 'paused' : 'stopped';
 
+    // Per-bot training: how many trades toward next phase
+    const botPct = tNextAt > 0 ? Math.min(100, Math.round(trades / tNextAt * 100)) : 0;
+    const barColor = botPct >= 75 ? 'var(--green)' : botPct >= 40 ? 'var(--yellow)' : 'var(--red)';
+
     return `<tr>
       <td><span class="rank ${rankClass}">${rank}</span></td>
       <td style="font-weight:bold;color:var(--bright)">${name}</td>
@@ -1149,6 +1162,14 @@ function renderLeaderboard(bots) {
       <td>${trades}</td>
       <td style="color:var(--muted)">${sharpe}</td>
       <td><span class="phase-badge ${phaseCls}">${phase}</span></td>
+      <td>
+        <div style="min-width:90px" title="${tPhase} | ${tSubs} subsystems | ${tTune} tune cycles">
+          <div style="background:rgba(255,255,255,0.08);border-radius:4px;height:14px;overflow:hidden;margin-bottom:2px">
+            <div style="width:${botPct}%;height:100%;background:${barColor};border-radius:4px;transition:width .5s"></div>
+          </div>
+          <span style="font-size:10px;color:var(--muted)">${trades}/${tNextAt} (${botPct}%)</span>
+        </div>
+      </td>
       <td>
         <button class="bot-btn pause" onclick="pauseBot('${name}')">Pause</button>
         <button class="bot-btn resume" onclick="resumeBot('${name}')">Resume</button>
@@ -1727,7 +1748,7 @@ async function loadPreview() {
         <td style="color:${p.conflict>0.8?'var(--red)':p.conflict>0.5?'var(--yellow)':'var(--green)'}">${((p.conflict||0)*100).toFixed(0)}%</td>
         <td style="color:${rsiClr}">${p.rsi||'—'}</td>
         <td>${p.adx||'—'}</td>
-        <td>$$${p.price||'—'}</td>
+        <td>\\$${p.price||'—'}</td>
       </tr>`;
     }).join('');
   } catch(e) {
