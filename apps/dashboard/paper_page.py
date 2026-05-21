@@ -1757,6 +1757,11 @@ function renderTradesRows(trades) {
   }).join('');
 }
 
+function closeTradeInfo() {
+  const el = document.getElementById('trade-info-overlay');
+  if (el) el.style.display = 'none';
+}
+
 function showTradeInfo(idx) {
   const t = _renderedTrades[idx];
   if (!t) return;
@@ -1811,7 +1816,7 @@ function showTradeInfo(idx) {
     overlay.onclick = e => { if(e.target===overlay) overlay.style.display='none'; };
     document.body.appendChild(overlay);
   }
-  overlay.innerHTML = '<div style="background:var(--surface-solid);border:1px solid var(--border);border-radius:12px;padding:20px 24px;max-width:420px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.5)">' + html + '<div style="text-align:center;margin-top:12px"><button class="btn-sm" onclick="document.getElementById(\'trade-info-overlay\').style.display=\'none\'">Close</button></div></div>';
+  overlay.innerHTML = '<div style="background:var(--surface-solid);border:1px solid var(--border);border-radius:12px;padding:20px 24px;max-width:420px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.5)">' + html + '<div style="text-align:center;margin-top:12px"><button class="btn-sm" onclick="closeTradeInfo()">Close</button></div></div>';
   overlay.style.display = 'flex';
 }
 
