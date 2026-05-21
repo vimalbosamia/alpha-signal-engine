@@ -467,22 +467,43 @@ async def paper_chart_data(symbol: str, timeframe: str = "15m") -> JSONResponse:
         }
 
         # Enrich with pattern detection + strategy signals
+        # Run detectors on last 20 candles to get per-candle pattern markers
         try:
             from apps.signal_agent.pipeline import DEFAULT_DETECTORS
             from libs.core.models.domain import AssetClass
-            for det in DEFAULT_DETECTORS:
-                try:
-                    result = det.detect(df)
-                    if result and hasattr(result, 'detected') and result.detected:
-                        resp_data["patterns"].append({
-                            "name": getattr(result, 'pattern_name', det.__class__.__name__),
-                            "bias": getattr(result, 'bias', 'neutral'),
-                            "category": getattr(result, 'category', 'unknown'),
-                            "strength": round(getattr(result, 'strength_score', 0), 2),
-                            "explanation": getattr(result, 'explanation', ''),
-                        })
-                except Exception:
-                    pass
+            # Detect on rolling windows for last 20 bars
+            scan_depth = min(20, len(df) - 10)
+            for offset in range(scan_depth):
+                slice_end = len(df) - offset
+                if slice_end < 15:
+                    break
+                df_slice = df.iloc[:slice_end]
+                bar_time = int(df_slice.index[-1].timestamp()) if hasattr(df_slice.index[-1], 'timestamp') else 0
+                bar_price = float(df_slice["close"].iloc[-1])
+                for det in DEFAULT_DETECTORS:
+                    try:
+                        result = det.detect(df_slice)
+                        if result and hasattr(result, 'detected') and result.detected:
+                            resp_data["patterns"].append({
+                                "name": getattr(result, 'pattern_name', det.__class__.__name__),
+                                "bias": getattr(result, 'bias', 'neutral'),
+                                "category": getattr(result, 'category', 'unknown'),
+                                "strength": round(getattr(result, 'strength_score', 0), 2),
+                                "explanation": getattr(result, 'explanation', ''),
+                                "time": bar_time,
+                                "price": bar_price,
+                            })
+                    except Exception:
+                        pass
+            # Deduplicate: same pattern at same time
+            seen = set()
+            unique_patterns = []
+            for p in resp_data["patterns"]:
+                key = (p["name"], p["time"])
+                if key not in seen:
+                    seen.add(key)
+                    unique_patterns.append(p)
+            resp_data["patterns"] = unique_patterns
         except Exception:
             pass
 
@@ -494,6 +515,7 @@ async def paper_chart_data(symbol: str, timeframe: str = "15m") -> JSONResponse:
             struct = MarketStructureEngine().analyze(df)
             ac = AssetClass.CRYPTO if symbol.endswith('USDT') else AssetClass.STOCK
             levels = KeyLevelsEngine().analyze(df, ac)
+            last_time = int(df.index[-1].timestamp()) if hasattr(df.index[-1], 'timestamp') else 0
             for strat in DEFAULT_STRATEGIES:
                 try:
                     if len(df) < strat.min_bars_required:
@@ -505,12 +527,15 @@ async def paper_chart_data(symbol: str, timeframe: str = "15m") -> JSONResponse:
                         regime=regime, indicators=indicators,
                     )
                     if candidate and candidate.proposed_action.value != 'NO_TRADE':
+                        entry_mid = round((candidate.entry_zone_low + candidate.entry_zone_high) / 2, 6)
                         resp_data["strategies"].append({
                             "name": strat.name,
                             "action": candidate.proposed_action.value,
-                            "entry": round((candidate.entry_zone_low + candidate.entry_zone_high) / 2, 6),
+                            "entry": entry_mid,
                             "stop": round(candidate.stop_loss, 6) if candidate.stop_loss else None,
                             "tp1": round(candidate.take_profit_1, 6) if candidate.take_profit_1 else None,
+                            "time": last_time,
+                            "price": entry_mid,
                         })
                 except Exception:
                     pass
@@ -805,9 +830,9 @@ async def paper_dashboard() -> HTMLResponse:
     .bias-badge.neutral { background:rgba(100,116,139,0.12); color:var(--muted); border:1px solid rgba(100,116,139,0.2); }
     .struct-event { font-size:0.65rem; padding:2px 0; }
 
-    /* Mode filter buttons */
-    .mode-filter { transition: all 0.2s var(--spring); }
-    .mode-filter.active { border-color: var(--cyan) !important; color: var(--cyan) !important; background: rgba(34,211,238,0.1) !important; }
+    /* Mode filter + chart toggle buttons */
+    .mode-filter, .chart-toggle { transition: all 0.2s var(--spring); }
+    .mode-filter.active, .chart-toggle.active { border-color: var(--cyan) !important; color: var(--cyan) !important; background: rgba(34,211,238,0.1) !important; }
   </style>
 </head>
 <body>
@@ -1413,21 +1438,21 @@ function renderChart(data, entryPrice, stopLoss, tp1, action) {
   }
 
   // ── Price lines: Entry, SL, TP1 ──
-  if (entryPrice) {
+  if (entryPrice && chartLayers.levels) {
     chartCandleSeries.createPriceLine({
       price: entryPrice, color: '#58a6ff', lineWidth: 2,
       lineStyle: LightweightCharts.LineStyle.Dashed,
       axisLabelVisible: true, title: '► Entry',
     });
   }
-  if (stopLoss && stopLoss > 0) {
+  if (stopLoss && stopLoss > 0 && chartLayers.levels) {
     chartCandleSeries.createPriceLine({
       price: stopLoss, color: '#f85149', lineWidth: 2,
       lineStyle: LightweightCharts.LineStyle.Dashed,
       axisLabelVisible: true, title: '✕ SL',
     });
   }
-  if (tp1 && tp1 > 0) {
+  if (tp1 && tp1 > 0 && chartLayers.levels) {
     chartCandleSeries.createPriceLine({
       price: tp1, color: '#3fb950', lineWidth: 2,
       lineStyle: LightweightCharts.LineStyle.Dashed,
@@ -1437,7 +1462,7 @@ function renderChart(data, entryPrice, stopLoss, tp1, action) {
 
   // ── EMA overlay lines (9, 20, 50) ──
   const ind = data.indicators;
-  if (ind.ema_9 && ind.ema_20) {
+  if (ind.ema_9 && ind.ema_20 && chartLayers.ema) {
     // Draw as horizontal reference lines across visible area
     const ema9Line = chartInstance.addLineSeries({ color: '#d29922', lineWidth: 1, title: 'EMA9', lastValueVisible: true, priceLineVisible: false });
     const ema20Line = chartInstance.addLineSeries({ color: '#58a6ff', lineWidth: 1, title: 'EMA20', lastValueVisible: true, priceLineVisible: false });
@@ -1446,7 +1471,7 @@ function renderChart(data, entryPrice, stopLoss, tp1, action) {
     ema9Line.setData([{time: firstT, value: ind.ema_9}, {time: lastT, value: ind.ema_9}]);
     ema20Line.setData([{time: firstT, value: ind.ema_20}, {time: lastT, value: ind.ema_20}]);
   }
-  if (ind.ema_50) {
+  if (ind.ema_50 && chartLayers.ema) {
     const ema50Line = chartInstance.addLineSeries({ color: '#f0883e', lineWidth: 1, title: 'EMA50', lastValueVisible: true, priceLineVisible: false });
     const lastT = data.candles[data.candles.length - 1].time;
     const firstT = data.candles[0].time;
@@ -1454,7 +1479,7 @@ function renderChart(data, entryPrice, stopLoss, tp1, action) {
   }
 
   // ── Bollinger Bands ──
-  if (ind.bb_upper && ind.bb_lower) {
+  if (ind.bb_upper && ind.bb_lower && chartLayers.bb) {
     const lastT = data.candles[data.candles.length - 1].time;
     const firstT = data.candles[0].time;
     const bbUp = chartInstance.addLineSeries({ color: 'rgba(88,166,255,0.4)', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, lastValueVisible: true, priceLineVisible: false, title: 'BB↑' });
@@ -1462,6 +1487,60 @@ function renderChart(data, entryPrice, stopLoss, tp1, action) {
     bbUp.setData([{time: firstT, value: ind.bb_upper}, {time: lastT, value: ind.bb_upper}]);
     bbLo.setData([{time: firstT, value: ind.bb_lower}, {time: lastT, value: ind.bb_lower}]);
   }
+
+  // ── Pattern + Strategy markers on candles ──
+  const markers = [];
+
+  // Pattern markers (detected on rolling window)
+  if (data.patterns && data.patterns.length) {
+    data.patterns.forEach(p => {
+      if (!p.time) return;
+      const isBull = p.bias === 'bullish';
+      markers.push({
+        time: p.time,
+        position: isBull ? 'belowBar' : 'aboveBar',
+        color: isBull ? '#3fb950' : '#f85149',
+        shape: isBull ? 'arrowUp' : 'arrowDown',
+        text: p.name.replace(/_/g, ' ').slice(0, 20),
+      });
+    });
+  }
+
+  // Strategy signal markers
+  if (data.strategies && data.strategies.length) {
+    data.strategies.forEach(s => {
+      if (!s.time) return;
+      const isBuy = s.action === 'BUY';
+      markers.push({
+        time: s.time,
+        position: isBuy ? 'belowBar' : 'aboveBar',
+        color: isBuy ? '#22d3ee' : '#f59e0b',
+        shape: 'circle',
+        text: s.name.replace(/_/g, ' ').slice(0, 18),
+      });
+    });
+  }
+
+  // Sort markers by time (required by Lightweight Charts)
+  markers.sort((a, b) => a.time - b.time);
+
+  // Deduplicate same time+shape (keep first)
+  const seen = new Set();
+  const uniqueMarkers = markers.filter(m => {
+    const k = m.time + '|' + m.text;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+
+  if (uniqueMarkers.length) {
+    chartCandleSeries.setMarkers(uniqueMarkers);
+  }
+
+  // Store data for toggle filtering
+  window._chartData = data;
+  window._allMarkers = uniqueMarkers;
+  document.getElementById('marker-count').textContent = uniqueMarkers.length + ' signals on ' + (data.patterns||[]).length + ' patterns + ' + (data.strategies||[]).length + ' strategies';
 
   // ── Zoom: show recent candles, scroll left for history ──
   chartInstance.timeScale().scrollToPosition(0, false);
@@ -1473,6 +1552,31 @@ function renderChart(data, entryPrice, stopLoss, tp1, action) {
     });
   } else {
     chartInstance.timeScale().fitContent();
+  }
+}
+
+// ── Chart layer toggles ──────────────────────────────────────────────────
+let chartLayers = { patterns: true, strategies: true, ema: true, bb: true, volume: true, levels: true };
+
+function toggleChartLayer(layer, btn) {
+  chartLayers[layer] = !chartLayers[layer];
+  btn.classList.toggle('active');
+
+  if (layer === 'patterns' || layer === 'strategies') {
+    // Re-filter markers
+    const allM = window._allMarkers || [];
+    const filtered = allM.filter(m => {
+      const isPattern = m.shape === 'arrowUp' || m.shape === 'arrowDown';
+      if (isPattern) return chartLayers.patterns;
+      return chartLayers.strategies;
+    });
+    if (chartCandleSeries) chartCandleSeries.setMarkers(filtered.sort((a,b) => a.time - b.time));
+    document.getElementById('marker-count').textContent = filtered.length + ' signals';
+  }
+  // For ema/bb/volume/levels: would need series refs. For now, reload chart
+  if (['ema','bb','volume','levels'].includes(layer) && chartSymbol) {
+    if (chartInstance) { chartInstance.remove(); chartInstance = null; chartCandleSeries = null; }
+    loadChartData(chartSymbol, chartEntry, chartSL, chartTP1, chartAction, true);
   }
 }
 
@@ -1707,6 +1811,16 @@ setInterval(loadPreview, 60000);  // Refresh preview every 60s  // Update equity
         <button class="btn-sm" onclick="switchTF('1w')">1w</button>
         <button class="chart-close" onclick="closeChart()">✕</button>
       </div>
+    </div>
+    <div id="chart-toggles" style="padding:6px 16px;border-bottom:1px solid var(--border);display:flex;gap:4px;flex-wrap:wrap;align-items:center;font-size:0.65rem">
+      <span style="color:var(--muted);margin-right:4px">Show:</span>
+      <button class="btn-sm chart-toggle active" data-layer="patterns" onclick="toggleChartLayer('patterns',this)" style="font-size:0.62rem;padding:2px 8px">Patterns</button>
+      <button class="btn-sm chart-toggle active" data-layer="strategies" onclick="toggleChartLayer('strategies',this)" style="font-size:0.62rem;padding:2px 8px">Strategies</button>
+      <button class="btn-sm chart-toggle active" data-layer="ema" onclick="toggleChartLayer('ema',this)" style="font-size:0.62rem;padding:2px 8px">EMA</button>
+      <button class="btn-sm chart-toggle active" data-layer="bb" onclick="toggleChartLayer('bb',this)" style="font-size:0.62rem;padding:2px 8px">Bollinger</button>
+      <button class="btn-sm chart-toggle active" data-layer="volume" onclick="toggleChartLayer('volume',this)" style="font-size:0.62rem;padding:2px 8px">Volume</button>
+      <button class="btn-sm chart-toggle active" data-layer="levels" onclick="toggleChartLayer('levels',this)" style="font-size:0.62rem;padding:2px 8px">Entry/SL/TP</button>
+      <span style="color:var(--muted);margin-left:8px" id="marker-count">0 signals</span>
     </div>
     <div class="chart-body">
       <div class="chart-candles" id="chart-container"></div>
