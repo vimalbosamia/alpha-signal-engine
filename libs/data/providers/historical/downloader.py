@@ -29,7 +29,8 @@ from libs.core.logging.logger import get_logger
 
 log = get_logger(__name__)
 
-BASE_URL = "https://data.binance.vision/data/spot/monthly/klines"
+SPOT_BASE_URL = "https://data.binance.vision/data/spot/monthly/klines"
+FUTURES_BASE_URL = "https://data.binance.vision/data/futures/um/monthly/klines"
 DATA_DIR = "data/historical"
 
 KLINE_COLUMNS = [
@@ -40,17 +41,24 @@ KLINE_COLUMNS = [
 
 
 class BinanceHistoricalDownloader:
-    """Downloads historical klines from Binance public data."""
+    """Downloads historical klines from Binance public data.
 
-    def __init__(self, data_dir: str = DATA_DIR) -> None:
+    Supports both spot and futures (USD-M) data.
+    Set market_type="futures" to download futures klines.
+    """
+
+    def __init__(self, data_dir: str = DATA_DIR, market_type: str = "spot") -> None:
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
+        self._market_type = market_type  # "spot" or "futures"
+        self._base_url = FUTURES_BASE_URL if market_type == "futures" else SPOT_BASE_URL
 
     def _output_path(self, symbol: str, timeframe: str) -> Path:
-        return self._data_dir / f"{symbol}_{timeframe}.parquet"
+        suffix = "_futures" if self._market_type == "futures" else ""
+        return self._data_dir / f"{symbol}_{timeframe}{suffix}.parquet"
 
     def _csv_cache_dir(self, symbol: str, timeframe: str) -> Path:
-        d = self._data_dir / "csv_cache" / symbol / timeframe
+        d = self._data_dir / "csv_cache" / self._market_type / symbol / timeframe
         d.mkdir(parents=True, exist_ok=True)
         return d
 
@@ -91,7 +99,7 @@ class BinanceHistoricalDownloader:
                 cache_file.unlink(missing_ok=True)
 
         filename = f"{symbol}-{timeframe}-{year}-{month:02d}.zip"
-        url = f"{BASE_URL}/{symbol}/{timeframe}/{filename}"
+        url = f"{self._base_url}/{symbol}/{timeframe}/{filename}"
 
         try:
             async with session.get(url, timeout=aiohttp.ClientTimeout(total=60)) as resp:

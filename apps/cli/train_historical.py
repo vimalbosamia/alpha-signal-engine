@@ -45,36 +45,48 @@ def download(
     symbols: str = typer.Option(
         "",
         "--symbols", "-s",
-        help="Comma-separated symbols (default: top 20 crypto)",
+        help="Comma-separated symbols (default: full watchlist)",
     ),
     timeframes: str = typer.Option(
-        "15m,1h,4h",
+        "5m,15m,30m,1h,4h,1d",
         "--timeframes", "-t",
         help="Comma-separated timeframes to download",
     ),
     months: int = typer.Option(12, "--months", "-m", help="Months of history"),
     force: bool = typer.Option(False, "--force", help="Re-download even if cached"),
+    futures: bool = typer.Option(False, "--futures", help="Also download futures data"),
 ):
-    """Download historical data from Binance."""
+    """Download historical data from Binance (spot + optional futures)."""
     from libs.data.providers.historical.downloader import BinanceHistoricalDownloader
-    from libs.training.historical_trainer import DEFAULT_TRAINING_SYMBOLS
+    from libs.training.historical_trainer import DEFAULT_TRAINING_SYMBOLS, DEFAULT_FUTURES_SYMBOLS
 
     sym_list = _parse_list(symbols) if symbols else DEFAULT_TRAINING_SYMBOLS
     tf_list = _parse_list(timeframes)
 
-    console.print(f"\n[bold cyan]Downloading {len(sym_list)} symbols × {len(tf_list)} timeframes × {months} months[/]")
+    # Spot download
+    console.print(f"\n[bold cyan]SPOT: Downloading {len(sym_list)} symbols × {len(tf_list)} timeframes × {months} months[/]")
     console.print(f"Symbols: {', '.join(sym_list[:10])}{'...' if len(sym_list) > 10 else ''}")
     console.print(f"Timeframes: {', '.join(tf_list)}\n")
 
-    dl = BinanceHistoricalDownloader()
+    dl_spot = BinanceHistoricalDownloader(market_type="spot")
 
     async def _run():
         total = 0
         for tf in tf_list:
-            console.print(f"[yellow]Downloading {tf} data...[/]")
-            results = await dl.download_all(sym_list, tf, months, force, max_concurrent=3)
+            console.print(f"[yellow]  Spot {tf}...[/]")
+            results = await dl_spot.download_all(sym_list, tf, months, force, max_concurrent=3)
             total += len(results)
-            console.print(f"  ✓ {len(results)}/{len(sym_list)} symbols downloaded for {tf}")
+            console.print(f"    ✓ {len(results)}/{len(sym_list)} symbols")
+
+        if futures:
+            fut_syms = _parse_list(symbols) if symbols else DEFAULT_FUTURES_SYMBOLS
+            console.print(f"\n[bold cyan]FUTURES: Downloading {len(fut_syms)} symbols × {len(tf_list)} timeframes[/]")
+            dl_fut = BinanceHistoricalDownloader(market_type="futures")
+            for tf in tf_list:
+                console.print(f"[yellow]  Futures {tf}...[/]")
+                results = await dl_fut.download_all(fut_syms, tf, months, force, max_concurrent=3)
+                total += len(results)
+                console.print(f"    ✓ {len(results)}/{len(fut_syms)} symbols")
         return total
 
     total = asyncio.run(_run())
@@ -89,7 +101,7 @@ def train(
         help="Comma-separated symbols",
     ),
     timeframes: str = typer.Option(
-        "15m,1h,4h",
+        "5m,15m,30m,1h,4h,1d",
         "--timeframes", "-t",
         help="Comma-separated timeframes",
     ),

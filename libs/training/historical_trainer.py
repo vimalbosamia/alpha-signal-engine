@@ -38,6 +38,14 @@ DEFAULT_TRAINING_SYMBOLS = [
     "POLUSDT",
 ]
 
+# Futures watchlist — subset that trades on Binance futures
+DEFAULT_FUTURES_SYMBOLS = [
+    "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT",
+    "XRPUSDT", "DOGEUSDT", "ADAUSDT", "LINKUSDT", "DOTUSDT", "AVAXUSDT",
+    "POLUSDT", "LTCUSDT", "NEARUSDT", "SUIUSDT", "APTUSDT", "ARBUSDT",
+    "INJUSDT", "FETUSDT", "RENDERUSDT", "TONUSDT",
+]
+
 # Multiple timeframes for richer training — 5m through 1d
 DEFAULT_TIMEFRAMES = ["5m", "15m", "30m", "1h", "4h", "1d"]
 
@@ -82,18 +90,26 @@ class HistoricalTrainer:
         timeframe: str = "15m",
         months: int = 12,
         force: bool = False,
+        market_type: str = "spot",
     ) -> dict[str, Any]:
         """Download historical data from Binance.
+
+        Args:
+            market_type: "spot" or "futures" — determines data source.
 
         Returns dict of symbol → parquet path.
         """
         from libs.data.providers.historical.downloader import BinanceHistoricalDownloader
 
-        symbols = symbols or DEFAULT_TRAINING_SYMBOLS
-        dl = BinanceHistoricalDownloader(data_dir=self._data_dir)
+        if market_type == "futures":
+            symbols = symbols or DEFAULT_FUTURES_SYMBOLS
+        else:
+            symbols = symbols or DEFAULT_TRAINING_SYMBOLS
+
+        dl = BinanceHistoricalDownloader(data_dir=self._data_dir, market_type=market_type)
 
         log.info("download_start", symbols=len(symbols), timeframe=timeframe,
-                 months=months)
+                 months=months, market_type=market_type)
 
         results = await dl.download_all(
             symbols=symbols,
@@ -104,7 +120,7 @@ class HistoricalTrainer:
         )
 
         log.info("download_complete", success=len(results),
-                 failed=len(symbols) - len(results))
+                 failed=len(symbols) - len(results), market_type=market_type)
         return results
 
     async def train(
