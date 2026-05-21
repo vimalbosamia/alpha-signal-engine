@@ -486,11 +486,11 @@ class SignalPipeline:
                     continue
 
                 # Regime-strategy matrix: check if strategy is allowed in this regime
+                # Skip for paper trading learning mode — bots need data from all regimes
                 regime_val = regime.regime.value if hasattr(regime.regime, "value") else str(regime.regime)
-                # Regime matrix: skip when structure strongly disagrees with regime
-                # Structure is more current than regime (EMA-based, lagging)
                 structure_override = deep_structure and deep_structure.strength > 0.6
-                if not structure_override:
+                is_paper_mode = self._bus is not None  # paper mode has event bus wired
+                if not structure_override and not is_paper_mode:
                     regime_check = self._regime_matrix.check(strategy.name, regime_val)
                     if not regime_check.is_allowed:
                         log.debug("regime_matrix_blocked", symbol=symbol,
