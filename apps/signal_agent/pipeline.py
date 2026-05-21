@@ -663,6 +663,9 @@ class SignalPipeline:
                 # Paper bots need learning data — FOMC/news shouldn't block paper trades.
                 # Use candidate's proposed action if it matches direction lock.
                 paper_action = candidate.proposed_action if candidate.proposed_action == allowed_action else SignalAction.NO_TRADE
+                log.debug("paper_dispatch_check", symbol=symbol, strategy=strategy.name,
+                          proposed=candidate.proposed_action.value, allowed=allowed_action.value,
+                          paper_action=paper_action.value)
 
                 if paper_action != SignalAction.NO_TRADE:
                     # Candle confirmation: only for scalp strategies
@@ -678,12 +681,17 @@ class SignalPipeline:
 
                     from libs.core.models.domain import TradingMode
                     paper_mode = TradingMode.FUTURES if self._trading_mode == "futures" else TradingMode.SPOT
-                    # Use participation confidence multiplier, not macro-killed confidence
                     paper_conf = max(output.confidence, participation.confidence_multiplier * 0.5)
+                    # Compute R:R from candidate stop/TP (output may have 0.0)
+                    entry_mid = (candidate.entry_zone_low + candidate.entry_zone_high) / 2
+                    risk = abs(entry_mid - candidate.stop_loss) if candidate.stop_loss else 1.0
+                    reward = abs(candidate.take_profit_1 - entry_mid) if candidate.take_profit_1 else risk
+                    paper_rr = round(reward / risk, 2) if risk > 0 else 1.5
                     paper_signal = output.model_copy(update={
                         "action": paper_action,
                         "trading_mode": paper_mode,
                         "confidence": paper_conf,
+                        "estimated_risk_reward": max(paper_rr, output.estimated_risk_reward),
                     })
                     await self._bus.publish("paper.signal.raw", {
                         "signal": paper_signal,
