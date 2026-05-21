@@ -50,12 +50,12 @@ else
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS
         if command -v brew &> /dev/null; then
-            brew install python@3.12
+            brew install python3
         else
             echo "  Installing Homebrew first..."
             /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
             eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv 2>/dev/null)"
-            brew install python@3.12
+            brew install python3
         fi
     elif [[ -f /etc/debian_version ]]; then
         # Ubuntu/Debian
