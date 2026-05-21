@@ -504,17 +504,25 @@ class SignalPipeline:
                 if candidate is None:
                     continue
 
-                # Regime-strategy matrix: check if strategy is allowed in this regime
-                # Skip for paper trading learning mode — bots need data from all regimes
+                # Regime-strategy matrix: check if strategy fits current regime
+                # Paper mode: soft penalty (-0.15 confidence) instead of hard block
+                # Live mode: hard block (skip strategy entirely)
                 regime_val = regime.regime.value if hasattr(regime.regime, "value") else str(regime.regime)
                 structure_override = deep_structure and deep_structure.strength > 0.6
                 is_paper_mode = self._bus is not None  # paper mode has event bus wired
-                if not structure_override and not is_paper_mode:
+                if not structure_override:
                     regime_check = self._regime_matrix.check(strategy.name, regime_val)
                     if not regime_check.is_allowed:
-                        log.debug("regime_matrix_blocked", symbol=symbol,
-                                  strategy=strategy.name, regime=regime_val)
-                        continue
+                        if is_paper_mode:
+                            # Soft penalty — let bots learn but penalize mismatched signals
+                            macro_confidence_adj -= 0.15
+                            log.debug("regime_matrix_soft_penalty", symbol=symbol,
+                                      strategy=strategy.name, regime=regime_val,
+                                      penalty=-0.15)
+                        else:
+                            log.debug("regime_matrix_blocked", symbol=symbol,
+                                      strategy=strategy.name, regime=regime_val)
+                            continue
 
                 # Direction lock: reject if strategy proposes opposite to bias
                 if candidate.proposed_action != SignalAction.NO_TRADE and candidate.proposed_action != allowed_action:

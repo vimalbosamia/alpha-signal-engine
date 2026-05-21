@@ -60,6 +60,12 @@ class VirtualTrade:
     risk_rejection_reason: Optional[str] = None  # if rejected, why
     bias_adverse_count: int = 0        # consecutive reanalysis checks where bias opposes direction
 
+    # ── MFE/MAE tracking (Maximum Favorable/Adverse Excursion) ──
+    mfe: float = 0.0                   # best unrealized P&L % seen during trade
+    mae: float = 0.0                   # worst unrealized P&L % seen during trade
+    mfe_price: float = 0.0             # price at MFE
+    mae_price: float = 0.0             # price at MAE
+
     # ── Market context for self-training ──
     market_context: Optional[dict] = None       # full context snapshot at entry
     entry_patterns: Optional[str] = None        # comma-separated pattern names
@@ -295,6 +301,10 @@ class PaperPortfolio:
             "signal_id": trade.signal_id,
             "trading_mode": getattr(trade, 'trading_mode', 'spot'),
             "leverage": getattr(trade, 'leverage', 1.0),
+            "mfe": getattr(trade, 'mfe', 0.0),
+            "mae": getattr(trade, 'mae', 0.0),
+            "mfe_price": getattr(trade, 'mfe_price', 0.0),
+            "mae_price": getattr(trade, 'mae_price', 0.0),
         }
 
         self._open_trades = [t for t in self._open_trades if t.id != trade_id]

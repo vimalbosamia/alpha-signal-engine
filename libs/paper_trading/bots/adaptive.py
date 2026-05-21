@@ -32,6 +32,23 @@ logger = logging.getLogger(__name__)
 BASE_CONFIDENCE: float = 0.40
 BASE_MIN_RR: float = 1.0
 
+# AdaptiveBot accepts a wide range of strategies but NOT every strategy.
+# Each strategy must be explicitly listed — prevents taking signals meant
+# for specialists (e.g., mean reversion signals in trending markets).
+_ADAPTIVE_STRATEGIES: frozenset[str] = frozenset({
+    # Trend / momentum
+    "ema_crossover", "macd_crossover", "sma_crossover",
+    "trend_following", "momentum_continuation", "mtf_alignment",
+    # Breakout / structure
+    "resistance_breakout", "support_breakdown", "break_and_retest",
+    "volume_breakout", "atr_breakout",
+    # Reversal (with pattern confirmation)
+    "hammer_reversal", "shooting_star_reversal", "engulfing_reversal",
+    "doji_reversal",
+    # Candle-based
+    "candle_direction_flip", "candle_momentum",
+})
+
 # Adaptation thresholds
 _MIN_TRADES_BEFORE_ADAPT: int = 10
 _ROLLING_WINDOW: int = 30
@@ -84,6 +101,10 @@ class AdaptiveBot(BotAgent):
     # ── Core filter ────────────────────────────────────────────────────────────
 
     def should_take_signal(self, signal: SignalOutput) -> bool:
+        # 0. Strategy filter — only accept known strategies
+        if signal.strategy_name not in _ADAPTIVE_STRATEGIES:
+            return False
+
         # 1. Symbol block check
         if signal.symbol in self._blocked_symbols:
             return False

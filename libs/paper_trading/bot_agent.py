@@ -261,19 +261,45 @@ class BotAgent(ABC):
 
     # ── Exit checking ──────────────────────────────────────────────────────────
 
+    # ── Strategy-specific expected move durations (minutes) ──
+    _STRATEGY_MAX_HOLD: dict[str, int] = {
+        "candle_direction_flip": 30,
+        "candle_momentum": 30,
+        "resistance_breakout": 60,
+        "support_breakdown": 60,
+        "volume_breakout": 60,
+        "atr_breakout": 60,
+        "range_breakout": 60,
+        "volatility_squeeze": 45,
+        "opening_range_breakout": 45,
+        "hammer_reversal": 120,
+        "shooting_star_reversal": 120,
+        "engulfing_reversal": 120,
+        "ema_crossover": 180,
+        "macd_crossover": 180,
+        "trend_following": 180,
+        "momentum_continuation": 120,
+        "mtf_alignment": 180,
+        "pullback_continuation": 120,
+        "break_and_retest": 90,
+        "bollinger_mean_reversion": 60,
+        "rsi_mean_reversion": 60,
+    }
+    _DEFAULT_MAX_HOLD: int = 240  # fallback: 4 hours
+
     def check_exits(self, live_prices: dict[str, float]) -> list[dict]:
-        """Check all open trades and close those hitting TP or SL.
+        """Check all open trades for exit conditions.
 
-        Exit rules:
-          BUY  trade: stop-loss if price <= stop_loss;
-                      take-profit if price >= target_price.
-          SELL trade: stop-loss if price >= stop_loss;
-                      take-profit if price <= target_price.
+        Exit hierarchy (first match wins):
+          1. Standard TP/SL hit
+          2. Momentum decay — MFE was good but now gave back >60%
+          3. Time-decay — exceeded strategy-specific max hold
+          4. Deteriorating loss — -1.5% after 20+ min
+          5. Breakout failure — breakout strategy didn't move 0.5% in 15 min
+          6. Break-even protection — -0.3% after 40 min
+          7. Sustained adverse — 30 consecutive checks below -0.5%
 
-        When _target_exit() == 'tp2' and tp2 is set, hold through tp1 and
-        only close at tp2.  Falls back to tp1 when tp2 is None.
-
-        Returns list of close-result dicts for every trade that was closed.
+        Also updates MFE/MAE on every check for analytics.
         """
         closed: list[dict] = []
 
@@ -299,6 +325,14 @@ class BotAgent(ABC):
             else:
                 unrealized_pct = (trade.entry_price - price) / trade.entry_price * 100
 
+            # ── Update MFE/MAE tracking ──
+            if unrealized_pct > trade.mfe:
+                trade.mfe = unrealized_pct
+                trade.mfe_price = price
+            if unrealized_pct < trade.mae:
+                trade.mae = unrealized_pct
+                trade.mae_price = price
+
             # Hold duration in minutes
             hold_minutes = (datetime.now(timezone.utc) - trade.opened_at).total_seconds() / 60
 
@@ -316,41 +350,64 @@ class BotAgent(ABC):
 
             # ── Active Trade Management ──
             if not hit_sl and not hit_tp:
-                # Rule 1: Max hold time — close stale trades
-                max_hold = 240  # 4 hours max — gives trades room to develop
-                if hold_minutes > max_hold:
-                    hit_management = True
-                    mgmt_reason = f"Max hold exceeded ({hold_minutes:.0f}m > {max_hold}m)"
 
-                # Rule 2: Trailing stop — if was profitable but now losing
-                # If price moved 50%+ toward TP then reversed back past entry → exit
-                if not hit_management and take_profit is not None:
-                    if trade.action == "BUY":
-                        max_progress = (price - trade.entry_price) / (take_profit - trade.entry_price) if take_profit != trade.entry_price else 0
-                    else:
-                        max_progress = (trade.entry_price - price) / (trade.entry_price - take_profit) if trade.entry_price != take_profit else 0
+                # Rule 1: Momentum decay exit — was profitable, gave back >60%
+                # If MFE was >0.5% but now gave back most of it → momentum dead
+                if not hit_management and trade.mfe > 0.5:
+                    giveback = trade.mfe - unrealized_pct
+                    if giveback > trade.mfe * 0.6:
+                        hit_management = True
+                        mgmt_reason = (
+                            f"Momentum decay: MFE={trade.mfe:.2f}% → "
+                            f"now={unrealized_pct:.2f}% (gave back {giveback:.2f}%)"
+                        )
+
+                # Rule 2: Time-decay exit — strategy-specific max hold
+                strategy_max = self._STRATEGY_MAX_HOLD.get(
+                    trade.strategy_name, self._DEFAULT_MAX_HOLD
+                )
+                if not hit_management and hold_minutes > strategy_max:
+                    hit_management = True
+                    mgmt_reason = (
+                        f"Time decay: {trade.strategy_name} held "
+                        f"{hold_minutes:.0f}m > {strategy_max}m limit"
+                    )
 
                 # Rule 3: Deteriorating loss — cut losing trades
-                # Crypto needs room: -1.5% after 20+ min means trend is against us
                 if not hit_management and unrealized_pct < -1.5 and hold_minutes > 20:
                     hit_management = True
                     mgmt_reason = f"Cutting loss: {unrealized_pct:.2f}% after {hold_minutes:.0f}m"
 
-                # Rule 4: Break-even exit — was profitable, now losing after 40min
+                # Rule 4: Breakout failure — didn't move 0.5% in 15 min
+                _BREAKOUT_STRATEGIES = {
+                    "resistance_breakout", "support_breakdown", "volume_breakout",
+                    "atr_breakout", "range_breakout", "opening_range_breakout",
+                }
+                if (not hit_management
+                        and trade.strategy_name in _BREAKOUT_STRATEGIES
+                        and hold_minutes > 15
+                        and trade.mfe < 0.5):
+                    hit_management = True
+                    mgmt_reason = (
+                        f"Breakout failure: {trade.strategy_name} only "
+                        f"{trade.mfe:.2f}% MFE in {hold_minutes:.0f}m"
+                    )
+
+                # Rule 5: Break-even exit — was profitable, now losing after 40min
                 if not hit_management and unrealized_pct < -0.3 and hold_minutes > 40:
                     hit_management = True
                     mgmt_reason = f"Break-even exit: {unrealized_pct:.2f}% after {hold_minutes:.0f}m"
 
-                # Rule 5: Sustained adverse movement — consistent directional loss
+                # Rule 6: Sustained adverse movement — consistent directional loss
                 if not hit_management:
-                    if unrealized_pct < -0.5:  # Meaningful adverse move
+                    if unrealized_pct < -0.5:
                         trade.bias_flip_count += 1
-                    elif unrealized_pct > 0:  # In profit — reset counter
+                    elif unrealized_pct > 0:
                         trade.bias_flip_count = 0
                     else:
                         trade.bias_flip_count = max(0, trade.bias_flip_count - 1)
 
-                    if trade.bias_flip_count >= 30:  # ~5 min of consistent adverse (30 × 10s)
+                    if trade.bias_flip_count >= 30:
                         hit_management = True
                         mgmt_reason = f"Sustained adverse movement ({trade.bias_flip_count} checks)"
 

@@ -18,12 +18,21 @@ _ALLOWED_TIMEFRAMES: frozenset[Timeframe] = frozenset({
     Timeframe.FIFTEEN_MIN,
 })
 
+# Strategies appropriate for scalping — fast in/out micro-moves
+_SCALP_STRATEGIES: frozenset[str] = frozenset({
+    "candle_direction_flip", "candle_momentum",
+    "ema_crossover", "macd_crossover",
+    "bollinger_mean_reversion", "rsi_mean_reversion",
+    "pullback_continuation", "pullback_bear_continuation",
+    "vwap_reclaim", "gap_fill",
+})
+
 _MIN_RR: float = 1.5
 _MIN_CONFIDENCE: float = 0.25
 
 
 class ScalperBot(BotAgent):
-    """High-frequency scalper limited to M5/M15 with minimum R:R filter."""
+    """High-frequency scalper limited to fast strategies on M5/M15."""
 
     NAME = "ScalperBot"
 
@@ -33,6 +42,9 @@ class ScalperBot(BotAgent):
     })
 
     def should_take_signal(self, signal: SignalOutput) -> bool:
+        # Must be a scalp-appropriate strategy
+        if signal.strategy_name not in _SCALP_STRATEGIES:
+            return False
         # Candle strategies: accept from any timeframe, lower confidence OK
         if signal.strategy_name in self._CANDLE_STRATEGIES:
             return signal.estimated_risk_reward >= 1.0
