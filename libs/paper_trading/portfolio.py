@@ -60,6 +60,11 @@ class VirtualTrade:
     risk_rejection_reason: Optional[str] = None  # if rejected, why
     bias_adverse_count: int = 0        # consecutive reanalysis checks where bias opposes direction
 
+    # ── Market context for self-training ──
+    market_context: Optional[dict] = None       # full context snapshot at entry
+    entry_patterns: Optional[str] = None        # comma-separated pattern names
+    entry_confidence: Optional[float] = None    # signal confidence at entry
+
 
 # ── Portfolio class ───────────────────────────────────────────────────────────
 
@@ -151,6 +156,7 @@ class PaperPortfolio:
         margin_mode: Optional[str] = None,
         notional_size: float = 0.0,
         liquidation_buffer_percent: float = 0.0,
+        market_context: Optional[dict] = None,
     ) -> Optional[str]:
         """
         Open a new virtual trade.
@@ -195,6 +201,9 @@ class PaperPortfolio:
             margin_mode=margin_mode,
             notional_size=notional_size or (position_size_usd * leverage),
             liquidation_buffer_percent=liquidation_buffer_percent,
+            market_context=market_context,
+            entry_patterns=market_context.get("entry_patterns") if market_context else None,
+            entry_confidence=market_context.get("entry_confidence") if market_context else None,
         )
 
         self._balance -= total_cost

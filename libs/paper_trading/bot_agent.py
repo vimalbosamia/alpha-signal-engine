@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 
 from libs.core.models.domain import SignalAction, SignalOutput, TradingMode
 from libs.paper_trading.allocator import CapitalAllocator
+from libs.paper_trading.market_context import MarketContextCollector
 from libs.paper_trading.market_mode_validator import validate_signal
 from libs.paper_trading.portfolio import PaperPortfolio
 from libs.paper_trading.shared_memory import get_shared_memory
@@ -217,6 +218,9 @@ class BotAgent(ABC):
                        reason=validation.reason, market_mode=market_mode)
             return None
 
+        # ── Collect market context for self-training ──
+        market_ctx = MarketContextCollector.from_signal(signal)
+
         trade_id = self._portfolio.open_trade(
             symbol=signal.symbol,
             asset_class=signal.asset_class.value,
@@ -239,6 +243,7 @@ class BotAgent(ABC):
             margin_mode=validation.margin_mode,
             notional_size=validation.notional_size,
             liquidation_buffer_percent=validation.liquidation_buffer_percent,
+            market_context=market_ctx.to_dict(),
         )
 
         if trade_id is None:
@@ -380,16 +385,20 @@ class BotAgent(ABC):
 
             # Report to shared memory so ALL bots learn
             memory = get_shared_memory()
-            if result.get("realized_pnl", 0) < 0:
+            trade_regime = result.get("regime", getattr(trade, "entry_regime", "unknown"))
+            trade_won = result.get("realized_pnl", 0) >= 0
+            trade_pnl = result.get("realized_pnl", 0)
+
+            if trade_pnl < 0:
                 memory.record_loss(
                     bot_name=self.NAME,
                     symbol=trade.symbol,
                     action=trade.action,
                     strategy=trade.strategy_name,
-                    regime=result.get("regime", "unknown"),
+                    regime=trade_regime,
                     patterns=result.get("patterns", []),
                     risk_reward=0.0,
-                    loss_amount=abs(result.get("realized_pnl", 0)),
+                    loss_amount=abs(trade_pnl),
                 )
             else:
                 memory.record_win(
@@ -397,8 +406,43 @@ class BotAgent(ABC):
                     symbol=trade.symbol,
                     action=trade.action,
                     strategy=trade.strategy_name,
-                    regime=result.get("regime", "unknown"),
+                    regime=trade_regime,
                 )
+
+            # ── Report to pattern scorer (Task 5) ──
+            try:
+                from libs.learning.pattern_scorer import get_pattern_store
+                pattern_store = get_pattern_store()
+                trade_patterns = getattr(trade, "entry_patterns", "") or ""
+                trade_rr = 0.0
+                if trade.stop_loss and trade.entry_price and trade.stop_loss != trade.entry_price:
+                    risk = abs(trade.entry_price - trade.stop_loss)
+                    if risk > 0 and trade.position_size_usd:
+                        reward = trade_pnl / trade.position_size_usd * trade.entry_price
+                        trade_rr = reward / risk
+                for pname in trade_patterns.split(","):
+                    pname = pname.strip()
+                    if pname:
+                        pattern_store.record(pname, regime=trade_regime, won=trade_won, rr=trade_rr)
+            except Exception:
+                pass
+
+            # ── Report to self-training coordinator (Task 10) ──
+            try:
+                from libs.learning.coordinator import get_coordinator
+                coordinator = get_coordinator()
+                trade_patterns_list = [p.strip() for p in (getattr(trade, "entry_patterns", "") or "").split(",") if p.strip()]
+                coordinator.on_trade_close(
+                    strategy=trade.strategy_name,
+                    won=trade_won,
+                    pnl=trade_pnl,
+                    rr=trade_rr if 'trade_rr' in dir() else 0.0,
+                    confidence=getattr(trade, "entry_confidence", 0.5) or 0.5,
+                    patterns=trade_patterns_list,
+                    regime=trade_regime,
+                )
+            except Exception:
+                pass
 
         return closed
 
