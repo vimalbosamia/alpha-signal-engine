@@ -39,28 +39,77 @@ echo "║   AI Trading Signal Agent + Paper Trading        ║"
 echo "╚══════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
-# ── Step 1: Check Python ────────────────────────────────────────────────────
+# ── Step 1: Install Python if missing ───────────────────────────────────────
 echo -e "${YELLOW}[1/7] Checking Python...${NC}"
 if command -v python3 &> /dev/null; then
     PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
     echo -e "  ${GREEN}Python ${PY_VERSION} found${NC}"
 else
-    echo -e "  ${RED}Python 3 not found!${NC}"
-    echo "  Install Python 3.12+:"
-    echo "    macOS:  brew install python3"
-    echo "    Ubuntu: sudo apt install python3"
-    echo "    Windows: winget install Python.Python.3.12"
-    exit 1
+    echo -e "  ${YELLOW}Python 3 not found — installing...${NC}"
+    # Detect OS and install
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS
+        if command -v brew &> /dev/null; then
+            brew install python@3.12
+        else
+            echo "  Installing Homebrew first..."
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv 2>/dev/null)"
+            brew install python@3.12
+        fi
+    elif [[ -f /etc/debian_version ]]; then
+        # Ubuntu/Debian
+        sudo apt update && sudo apt install -y python3 python3-pip python3-venv
+    elif [[ -f /etc/redhat-release ]]; then
+        # CentOS/RHEL/Fedora
+        sudo dnf install -y python3 python3-pip
+    elif [[ -f /etc/arch-release ]]; then
+        # Arch Linux
+        sudo pacman -Sy --noconfirm python python-pip
+    else
+        echo -e "  ${RED}Could not auto-install Python. Please install Python 3.12+ manually.${NC}"
+        exit 1
+    fi
+    PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+    echo -e "  ${GREEN}Python ${PY_VERSION} installed${NC}"
 fi
 
-# ── Step 2: Install uv ─────────────────────────────────────────────────────
-echo -e "${YELLOW}[2/7] Checking uv package manager...${NC}"
+# ── Step 2: Install uv + git ───────────────────────────────────────────────
+echo -e "${YELLOW}[2/7] Checking dependencies (uv, git, curl)...${NC}"
+
+# git
+if ! command -v git &> /dev/null; then
+    echo "  Installing git..."
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        brew install git
+    elif [[ -f /etc/debian_version ]]; then
+        sudo apt install -y git
+    elif [[ -f /etc/redhat-release ]]; then
+        sudo dnf install -y git
+    fi
+fi
+echo -e "  ${GREEN}git $(git --version 2>/dev/null | head -1)${NC}"
+
+# curl
+if ! command -v curl &> /dev/null; then
+    echo "  Installing curl..."
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        brew install curl
+    elif [[ -f /etc/debian_version ]]; then
+        sudo apt install -y curl
+    fi
+fi
+
+# uv
 if command -v uv &> /dev/null; then
-    echo -e "  ${GREEN}uv already installed$(uv --version 2>/dev/null | head -1)${NC}"
+    echo -e "  ${GREEN}uv already installed $(uv --version 2>/dev/null | head -1)${NC}"
 else
-    echo "  Installing uv..."
+    echo "  Installing uv (fast Python package manager)..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
     export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+    # Source shell profile to pick up uv
+    [ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null
+    [ -f "$HOME/.zshrc" ] && source "$HOME/.zshrc" 2>/dev/null
     echo -e "  ${GREEN}uv installed${NC}"
 fi
 
