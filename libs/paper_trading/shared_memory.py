@@ -20,9 +20,9 @@ from libs.core.logging.logger import get_logger
 
 log = get_logger(__name__)
 
-LOSS_THRESHOLD = 3       # block after N losses on same key
+LOSS_THRESHOLD = 20      # block after N losses on same key (lenient for paper learning)
 ROLLING_WINDOW = 50      # only look at last N records
-WIN_RESET_COUNT = 2      # N wins on same key resets block
+WIN_RESET_COUNT = 1      # N wins on same key resets block
 
 
 @dataclass(frozen=True)
@@ -143,15 +143,18 @@ class SharedLossMemory:
             self._log_avoid(reason)
             return True, reason
 
-        # Check regime+action failures
-        regime_action_losses = sum(
-            1 for r in recent if r.regime == regime and r.action == action
+        # Check regime+action failures — only block specific regime+strategy combos,
+        # not entire regimes (too coarse for paper learning)
+        regime_strat_losses = sum(
+            1 for r in recent
+            if r.regime == regime and r.action == action and r.strategy == strategy
         )
-        regime_action_wins = sum(
-            1 for r in recent_wins if r.regime == regime and r.action == action
+        regime_strat_wins = sum(
+            1 for r in recent_wins
+            if r.regime == regime and r.action == action and r.strategy == strategy
         )
-        if regime_action_losses >= LOSS_THRESHOLD and regime_action_wins < WIN_RESET_COUNT:
-            reason = f"Shared memory: {regime_action_losses} losses on {action} in {regime}"
+        if regime_strat_losses >= LOSS_THRESHOLD and regime_strat_wins < WIN_RESET_COUNT:
+            reason = f"Shared memory: {regime_strat_losses} losses on {action} {strategy} in {regime}"
             self._log_avoid(reason)
             return True, reason
 

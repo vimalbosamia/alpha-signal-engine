@@ -95,15 +95,16 @@ class TestPositionSize:
         expected = min(capped_kelly * 0.5 * 10_000.0, 10_000.0 * 0.15)
         assert result == pytest.approx(expected, rel=1e-6)
 
-    def test_position_size_negative_kelly_returns_zero(self, allocator: CapitalAllocator) -> None:
-        """Negative kelly in phase 2/3 → 0.0."""
+    def test_position_size_negative_kelly_uses_floor(self, allocator: CapitalAllocator) -> None:
+        """Negative kelly in phase 2/3 → 3% floor for paper learning."""
         result = allocator.position_size(
             bot_capital=10_000.0,
             trade_count=20,
             win_rate=0.4,
             avg_win_loss_ratio=1.0,
         )
-        assert result == 0.0
+        # 3% of 10,000 = 300, capped at 15% max = 1500
+        assert result == 300.0
 
     def test_position_size_phase2_small_capital_below_minimum(self, allocator: CapitalAllocator) -> None:
         """Phase 2 result below MIN_TRADE_SIZE → 0."""

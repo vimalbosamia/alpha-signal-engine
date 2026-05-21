@@ -86,16 +86,17 @@ class CapitalAllocator:
         else:
             kelly = self.kelly_fraction(win_rate, avg_win_loss_ratio)
             if kelly <= 0:
-                return 0.0
-
-            if trade_count < 30:
+                # Paper learning floor: keep trading at 3% to gather data
+                raw = bot_capital * 0.03
+                sized = min(raw, max_trade)
+            elif trade_count < 30:
                 # Phase 2 — learning: quarter-Kelly
                 raw = kelly * 0.25 * bot_capital
+                sized = min(raw, max_trade)
             else:
                 # Phase 3 — full: half-Kelly
                 raw = kelly * 0.5 * bot_capital
-
-            sized = min(raw, max_trade)
+                sized = min(raw, max_trade)
 
         # Volatility adjustment: reduce size in high-ATR environments
         if volatility_pct > 5.0:

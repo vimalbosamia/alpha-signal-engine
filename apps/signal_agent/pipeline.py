@@ -85,6 +85,8 @@ from libs.risk.throttle import RiskThrottleEngine
 from libs.risk.trailing_stop import TrailingStopManager
 from libs.risk.basket import BasketExpectancyEngine
 from libs.signals.confluence.engine import ConfluenceEngine
+from libs.confluence.engine import ConfluenceV2Engine
+from libs.confluence.scorer import meets_threshold
 from libs.signals.output.emitter import SignalEmitter
 from libs.signals.explainability import ExplainabilityEngine
 from libs.signals.grading.engine import TradeDecisionEngine, GradingInput
@@ -165,6 +167,7 @@ class SignalPipeline:
         self._regime = RegimeEngine()
         self._indicators = IndicatorsEngine()
         self._confluence = ConfluenceEngine()
+        self._confluence_v2 = ConfluenceV2Engine()
         self._risk = RiskEngine()
         self._emitter = SignalEmitter(
             agent_mode=get_settings().agent_mode.value,
@@ -682,6 +685,47 @@ class SignalPipeline:
                               trace=explanation.decision_trace[:3])
                 except Exception:
                     pass
+
+                # ── Confluence V2: multi-layer scoring ────────────────────
+                try:
+                    ind_dict = dict(indicators) if indicators else {}
+                    if len(df) > 0:
+                        last = df.iloc[-1]
+                        ind_dict.setdefault("close", float(last.get("close", 0)))
+                    if len(df) > 1:
+                        prev_ind = self._indicators.compute(df.iloc[:-1])
+                        ind_dict["prev_rsi"] = prev_ind.get("rsi")
+                    v2_bias = {
+                        "bullish": symbol_bias.bullish_score if symbol_bias else 0.0,
+                        "bearish": symbol_bias.bearish_score if symbol_bias else 0.0,
+                        "net": symbol_bias.net_bias if symbol_bias else "neutral",
+                    } if symbol_bias else None
+                    v2_results = self._confluence_v2.evaluate(
+                        symbol=symbol,
+                        candidates=[candidate],
+                        regime=regime,
+                        structure=structure,
+                        bias_data=v2_bias,
+                        indicators=ind_dict,
+                    )
+                    if v2_results:
+                        cr = v2_results[0]
+                        v2_tag = (
+                            f"CONFLUENCE_V2: score={cr.confluence_score:.0f} "
+                            f"quality={cr.trade_quality} layers={cr.layer_count} "
+                            f"confirmations=[{','.join(cr.confirmation_signals)}] "
+                            f"suppressions=[{','.join(cr.suppression_signals)}]"
+                        )
+                        output = output.model_copy(update={
+                            "warnings": list(output.warnings or []) + [v2_tag],
+                        })
+                        log.debug("confluence_v2_scored", symbol=symbol,
+                                  strategy=strategy.name,
+                                  score=cr.confluence_score,
+                                  quality=cr.trade_quality,
+                                  layers=cr.layer_count)
+                except Exception as v2_exc:
+                    log.debug("confluence_v2_error", error=str(v2_exc))
 
                 # ── Paper trading: dispatch direction-aligned signals ────────
                 # If output is NO_TRADE but candidate proposed an action that
