@@ -50,6 +50,13 @@ def is_strategy_muted(strategy_name: str) -> bool:
     return strategy_name in _MUTED_STRATEGIES
 
 
+def mute_strategy(strategy_name: str) -> None:
+    """Manually mute a strategy at runtime."""
+    global _MUTED_STRATEGIES
+    _MUTED_STRATEGIES = _MUTED_STRATEGIES | frozenset([strategy_name])
+    log.info("strategy_muted_manual", strategy=strategy_name, total_muted=len(_MUTED_STRATEGIES))
+
+
 async def load_muted_strategies_from_db() -> int:
     """Load muted strategies from DB into in-memory set. Returns count loaded.
     Call once at server startup before the pipeline runs."""
